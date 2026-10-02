@@ -1,0 +1,2300 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>쏘플 공간관리</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23E83217'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='700'>S</text></svg>">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#F7F7F8; --surface:#FFFFFF; --ink:#1A1C20; --sub:#6B7178; --faint:#9AA0A8;
+  --line:#E7E8EC; --line2:#F0F1F4;
+  --point:#E83217; --point-deep:#C42B12; --point-soft:#FDEEEA;
+  --blue:#2563EB; --blue-soft:#EAF1FE;
+  --green:#1D8A4E; --green-soft:#E7F5EC;
+  --amber:#B45309; --amber-soft:#FBEFDD;
+  --gray-soft:#F1F2F4;
+  --r:10px; --r-lg:14px;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:"Pretendard Variable",Pretendard,-apple-system,"Malgun Gothic",sans-serif;
+  font-size:14.5px; line-height:1.55; -webkit-font-smoothing:antialiased;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+img{max-width:100%}
+a{color:var(--blue);text-decoration:none}
+.num{font-variant-numeric:tabular-nums}
+
+/* ---------- 레이아웃 ---------- */
+.shell{display:flex;min-height:100%}
+.side{
+  width:216px;flex:0 0 216px;background:var(--surface);border-right:1px solid var(--line);
+  padding:22px 14px calc(18px + env(safe-area-inset-bottom,0px));
+  position:sticky;top:0;height:100vh;height:100dvh;overflow-y:auto;
+}
+.brand{display:flex;align-items:center;gap:9px;padding:2px 8px 18px}
+.brand .mark{width:30px;height:30px;border-radius:8px;background:var(--point);color:#fff;
+  display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px}
+.brand .t1{font-weight:800;font-size:15.5px;letter-spacing:-.01em}
+.brand .t2{font-size:11.5px;color:var(--sub);margin-top:1px}
+.navgrp{margin:10px 0 2px;padding:0 8px;font-size:11.5px;color:var(--faint);font-weight:600}
+.navbtn{
+  display:flex;align-items:center;gap:9px;width:100%;padding:9px 10px;margin:2px 0;
+  border:0;background:none;border-radius:9px;cursor:pointer;color:var(--ink);
+  font-size:14px;font-weight:500;text-align:left;
+}
+.navbtn:hover{background:var(--gray-soft)}
+.navbtn.on{background:var(--point-soft);color:var(--point-deep);font-weight:700}
+.navbtn .ic{width:18px;text-align:center;font-size:15px}
+.navbtn .cnt{margin-left:auto;font-size:11.5px;background:var(--point);color:#fff;border-radius:99px;
+  min-width:18px;height:18px;line-height:18px;text-align:center;padding:0 5px;font-weight:700}
+.side .me{margin-top:auto;border-top:1px solid var(--line2);padding-top:12px}
+.side{display:flex;flex-direction:column}
+.side nav{flex:1}
+.me .who{padding:4px 8px}
+.me .nm{font-weight:700;font-size:14px}
+.me .rl{font-size:12px;color:var(--sub)}
+
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.topbar{
+  position:sticky;top:0;z-index:30;background:rgba(255,255,255,.94);backdrop-filter:blur(8px);
+  border-bottom:1px solid var(--line);
+  padding:calc(10px + env(safe-area-inset-top,0px)) 20px 10px;
+  display:flex;align-items:center;gap:12px;min-height:54px;
+}
+body .shell .topbar{padding-top:10px}
+.topbar h1{font-size:17px;font-weight:800;margin:0;letter-spacing:-.01em}
+.topbar .sub{font-size:12.5px;color:var(--sub)}
+.topbar .sp{flex:1}
+.content{padding:20px;max-width:1160px;width:100%;margin:0 auto;flex:1}
+.content>section{margin-bottom:26px}
+
+.bottomnav{display:none}
+
+/* ---------- 공통 컴포넌트 ---------- */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 18px}
+.card+.card{margin-top:12px}
+.card h3{margin:0 0 10px;font-size:15px;font-weight:800;letter-spacing:-.01em}
+.card .hd{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.card .hd h3{margin:0}
+.card .hd .sp{flex:1}
+.hint{font-size:12.5px;color:var(--sub)}
+.hint.b{padding:9px 12px;background:var(--gray-soft);border-radius:9px;line-height:1.6}
+.hint.warn{background:var(--amber-soft);color:#7A4408}
+.hint.red{background:var(--point-soft);color:var(--point-deep)}
+
+.btn{
+  border:1px solid var(--line);background:var(--surface);border-radius:9px;
+  padding:8px 14px;font-size:13.5px;font-weight:600;cursor:pointer;color:var(--ink);
+  display:inline-flex;align-items:center;gap:6px;white-space:nowrap;
+}
+.btn:hover{background:var(--gray-soft)}
+.btn.primary{background:var(--point);border-color:var(--point);color:#fff}
+.btn.primary:hover{background:var(--point-deep)}
+.btn.dark{background:var(--ink);border-color:var(--ink);color:#fff}
+.btn.ghost{border-color:transparent;background:none;color:var(--sub)}
+.btn.ghost:hover{background:var(--gray-soft);color:var(--ink)}
+.btn.sm{padding:5px 10px;font-size:12.5px;border-radius:8px}
+.btn.xs{padding:3px 8px;font-size:12px;border-radius:7px}
+.btn.blue{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn.green{background:var(--green);border-color:var(--green);color:#fff}
+.btn:disabled{opacity:.45;cursor:default}
+.btn.full{width:100%;justify-content:center}
+
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;
+  padding:3px 9px;border-radius:99px;background:var(--gray-soft);color:var(--sub);white-space:nowrap}
+.pill.todo{background:var(--gray-soft);color:#565C64}
+.pill.done{background:var(--blue-soft);color:var(--blue)}
+.pill.redo{background:var(--amber-soft);color:var(--amber)}
+.pill.confirmed{background:var(--green-soft);color:var(--green)}
+.pill.skip{background:#fff;border:1px dashed var(--faint);color:var(--faint)}
+.pill.red{background:var(--point-soft);color:var(--point-deep)}
+.pill.blue{background:var(--blue-soft);color:var(--blue)}
+.pill.green{background:var(--green-soft);color:var(--green)}
+.pill.amber{background:var(--amber-soft);color:var(--amber)}
+.pill.gray{background:var(--gray-soft);color:var(--sub)}
+.pill.line{background:#fff;border:1px solid var(--line);color:var(--sub)}
+
+.field{margin-bottom:12px}
+.field label{display:block;font-size:12.5px;font-weight:700;color:var(--sub);margin-bottom:5px}
+.inp,.sel,.ta{
+  width:100%;border:1px solid var(--line);border-radius:9px;background:#fff;
+  padding:9px 11px;font-size:14px;outline:none;
+}
+.inp:focus,.sel:focus,.ta:focus{border-color:var(--point);box-shadow:0 0 0 3px var(--point-soft)}
+.ta{min-height:84px;resize:vertical;line-height:1.55}
+.sel{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236B7178' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 11px center;padding-right:30px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+
+.tabs{display:flex;gap:4px;background:var(--gray-soft);padding:4px;border-radius:11px;width:max-content;max-width:100%;overflow-x:auto}
+.tabs button{border:0;background:none;padding:7px 14px;border-radius:8px;font-size:13.5px;font-weight:600;color:var(--sub);cursor:pointer;white-space:nowrap}
+.tabs button.on{background:#fff;color:var(--ink);font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+
+.tblwrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:#fff}
+table.tbl{border-collapse:collapse;width:100%;font-size:13.5px;min-width:560px}
+.tbl th{background:#FAFAFB;color:var(--sub);font-size:12px;font-weight:700;text-align:left;
+  padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+.tbl td{padding:9px 12px;border-bottom:1px solid var(--line2);vertical-align:middle}
+.tbl tr:last-child td{border-bottom:0}
+.tbl td.r,.tbl th.r{text-align:right}
+.tbl td.c,.tbl th.c{text-align:center}
+.tbl tr.sum td{background:#FAFAFB;font-weight:800;border-top:2px solid var(--line)}
+.tbl .inp.mini{padding:5px 8px;font-size:13px;border-radius:7px;text-align:right;min-width:86px}
+
+/* 청소 작업 카드 */
+.task{
+  background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);
+  padding:13px 15px 13px 18px;position:relative;overflow:hidden;cursor:pointer;
+}
+.task::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--faint)}
+.task.todo::before{background:#C6CAD0}
+.task.done::before{background:var(--blue)}
+.task.redo::before{background:var(--amber)}
+.task.confirmed::before{background:var(--green)}
+.task.skip::before{background:transparent;border-left:3px dashed var(--faint)}
+.task:hover{border-color:#D6D8DE}
+.task .l1{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.task .bn{font-weight:800;font-size:14.5px}
+.task .l2{display:flex;align-items:center;gap:10px;margin-top:7px;flex-wrap:wrap;font-size:12.5px;color:var(--sub)}
+.task .assg{margin-left:auto;display:flex;align-items:center;gap:6px}
+.tasklist{display:flex;flex-direction:column;gap:9px}
+.rail{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--sub)}
+.rail .bar{width:74px;height:5px;border-radius:99px;background:var(--line2);position:relative;overflow:hidden}
+.rail .bar i{position:absolute;left:0;top:0;bottom:0;background:var(--point);opacity:.85;border-radius:99px}
+.rail b{color:var(--ink);font-weight:700}
+.daychip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:9px;background:var(--gray-soft);font-size:12.5px;font-weight:700;color:var(--sub)}
+.daychip.today{background:var(--point-soft);color:var(--point-deep)}
+
+/* 체크리스트 수행 화면 */
+.chkgrp{margin-bottom:14px}
+.chkgrp .gt{font-size:12.5px;font-weight:800;color:var(--sub);margin:0 0 6px 2px}
+.chk{
+  display:flex;align-items:flex-start;gap:11px;padding:11px 12px;border:1px solid var(--line);
+  border-radius:11px;background:#fff;cursor:pointer;margin-bottom:6px;user-select:none;
+}
+.chk input{display:none}
+.chk .box{width:22px;height:22px;flex:0 0 22px;border-radius:7px;border:2px solid #C9CDD3;margin-top:1px;
+  display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff;font-weight:800}
+.chk.on{background:var(--green-soft);border-color:#BFE3CD}
+.chk.on .box{background:var(--green);border-color:var(--green)}
+.chk.on .tx{color:#14553A}
+.chk .tx{font-size:14px;line-height:1.45;padding-top:1px}
+.chk.special{border-color:#F3C9BE;background:#FFF9F7}
+.chk.special.on{background:var(--green-soft);border-color:#BFE3CD}
+.sptag{display:inline-block;font-size:10.5px;font-weight:800;color:var(--point-deep);background:var(--point-soft);
+  border-radius:5px;padding:1px 6px;margin-right:6px;vertical-align:1px}
+.progress{height:7px;border-radius:99px;background:var(--line2);overflow:hidden;margin:4px 0 2px}
+.progress i{display:block;height:100%;background:var(--green);border-radius:99px;transition:width .2s}
+
+/* 예약 그리드 */
+.resgrid{border:1px solid var(--line);border-radius:var(--r);overflow:auto;background:#fff;max-height:64vh}
+.resgrid table{border-collapse:collapse;font-size:12px;min-width:640px;width:100%}
+.resgrid th{position:sticky;top:0;background:#FAFAFB;z-index:2;padding:7px 6px;border-bottom:1px solid var(--line);font-size:11.5px;color:var(--sub);white-space:nowrap}
+.resgrid td{border-bottom:1px solid var(--line2);border-right:1px solid var(--line2);padding:4px 5px;text-align:center}
+.resgrid td.dt{position:sticky;left:0;background:#fff;font-weight:700;white-space:nowrap;text-align:left;padding-left:10px;z-index:1}
+.resgrid tr.wknd td.dt{color:var(--point-deep)}
+.slotbtn{display:inline-block;min-width:26px;padding:3px 5px;margin:1px;border-radius:6px;border:1px solid var(--line);
+  background:#fff;color:var(--faint);font-size:11px;font-weight:700;cursor:pointer}
+.slotbtn.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.slotbtn.xls{background:var(--point);border-color:var(--point);color:#fff;cursor:default}
+.slotbtn.all.on,.slotbtn.all.xls{background:var(--amber);border-color:var(--amber)}
+
+/* KPI */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);padding:14px 16px}
+.kpi .k{font-size:12px;color:var(--sub);font-weight:600}
+.kpi .v{font-size:22px;font-weight:800;margin-top:3px;letter-spacing:-.01em}
+.kpi .s{font-size:11.5px;color:var(--faint);margin-top:2px}
+.barrow{display:flex;align-items:center;gap:10px;margin:7px 0}
+.barrow .lb{width:118px;font-size:12.5px;font-weight:600;flex:0 0 118px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.barrow .tr{flex:1;height:18px;background:var(--line2);border-radius:6px;overflow:hidden}
+.barrow .tr i{display:block;height:100%;background:var(--point);border-radius:6px;min-width:2px}
+.barrow .vl{width:96px;text-align:right;font-size:12.5px;font-weight:700}
+
+/* 홍보 매트릭스 */
+.dotrow{display:flex;gap:5px;flex-wrap:wrap}
+.dot{width:13px;height:13px;border-radius:4px;background:var(--line)}
+.dot.g{background:var(--green)} .dot.a{background:#E5A23C} .dot.r{background:var(--point)} .dot.x{background:#C9CDD3}
+.chcard{border:1px solid var(--line);border-radius:11px;padding:11px 13px;background:#fff;margin-bottom:8px}
+.chcard .l1{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.chcard .nm{font-weight:800;font-size:14px}
+.chcard .l2{display:flex;gap:12px;align-items:center;margin-top:6px;font-size:12.5px;color:var(--sub);flex-wrap:wrap}
+
+/* 이슈 */
+.issue{border:1px solid var(--line);border-radius:var(--r-lg);background:#fff;padding:13px 15px;cursor:pointer;margin-bottom:9px}
+.issue:hover{border-color:#D6D8DE}
+.issue .l1{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.issue .tt{font-weight:800}
+.issue .l2{font-size:12.5px;color:var(--sub);margin-top:5px;display:flex;gap:10px;flex-wrap:wrap}
+.cmt{background:var(--gray-soft);border-radius:10px;padding:9px 12px;margin-bottom:7px;font-size:13.5px}
+.cmt .m{font-size:11.5px;color:var(--faint);margin-top:3px}
+
+/* 모달 */
+.mask{position:fixed;inset:0;background:rgba(20,22,26,.42);z-index:80;display:flex;align-items:flex-end;justify-content:center;padding:0}
+.modal{background:#fff;border-radius:18px 18px 0 0;width:100%;max-width:640px;max-height:92vh;max-height:92dvh;
+  overflow-y:auto;padding:20px 20px calc(20px + env(safe-area-inset-bottom,0px));animation:up .18s ease}
+@keyframes up{from{transform:translateY(24px);opacity:.6}to{transform:none;opacity:1}}
+.modal .mh{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.modal .mh h3{margin:0;font-size:16.5px;font-weight:800;flex:1}
+.modal .x{border:0;background:var(--gray-soft);width:30px;height:30px;border-radius:99px;cursor:pointer;font-size:14px;color:var(--sub)}
+.modal .ft{display:flex;gap:8px;margin-top:16px}
+.modal .ft .btn{flex:1;justify-content:center;padding:11px}
+@media(min-width:700px){
+  .mask{align-items:center;padding:24px}
+  .modal{border-radius:18px}
+}
+
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(76px + env(safe-area-inset-bottom,0px));
+  background:var(--ink);color:#fff;font-size:13.5px;font-weight:600;padding:10px 18px;border-radius:99px;z-index:120;
+  box-shadow:0 6px 20px rgba(0,0,0,.25);animation:up .18s ease}
+.empty{padding:34px 16px;text-align:center;color:var(--faint);font-size:13.5px;background:#fff;border:1px dashed var(--line);border-radius:var(--r-lg)}
+.sect-t{font-size:13px;font-weight:800;color:var(--sub);margin:0 0 9px 2px;display:flex;align-items:center;gap:8px}
+.sect-t .cnt{font-size:11.5px;background:var(--gray-soft);border-radius:99px;padding:1px 8px;color:var(--sub)}
+.drop{border:2px dashed #D7DADF;border-radius:var(--r-lg);background:#fff;padding:30px 16px;text-align:center;color:var(--sub);cursor:pointer}
+.drop.over{border-color:var(--point);background:var(--point-soft);color:var(--point-deep)}
+.fb{background:var(--amber-soft);border:1px solid #F0DCB8;border-radius:11px;padding:11px 13px;font-size:13.5px;color:#6E4206;margin-bottom:12px}
+.fb b{display:block;margin-bottom:2px}
+.okfb{background:var(--green-soft);border:1px solid #C4E6D2;color:#14553A}
+
+/* 로그인 */
+.auth{min-height:100vh;min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px;background:
+  radial-gradient(900px 420px at 85% -10%, #FDEEEA 0%, rgba(253,238,234,0) 60%), var(--bg)}
+.authcard{width:100%;max-width:400px;background:#fff;border:1px solid var(--line);border-radius:20px;padding:30px 26px}
+.authcard .lg{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.authcard .mark{width:38px;height:38px;border-radius:10px;background:var(--point);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px}
+.authcard h2{margin:0;font-size:19px;font-weight:800;letter-spacing:-.01em}
+.authcard .ds{color:var(--sub);font-size:13px;margin:2px 0 20px}
+.autherr{background:var(--point-soft);color:var(--point-deep);font-size:13px;border-radius:9px;padding:9px 12px;margin-bottom:12px;font-weight:600}
+
+/* 반응형 */
+@media(max-width:920px){
+  .side{display:none}
+  .content{padding:14px 14px calc(84px + env(safe-area-inset-bottom,0px))}
+  .topbar{padding-left:16px;padding-right:16px}
+  body .shell .topbar{padding-top:calc(10px + env(safe-area-inset-top,0px))}
+  .bottomnav{
+    display:flex;position:fixed;left:0;right:0;bottom:0;z-index:40;background:rgba(255,255,255,.96);
+    backdrop-filter:blur(10px);border-top:1px solid var(--line);
+    padding:6px 8px calc(8px + env(safe-area-inset-bottom,0px));
+  }
+  .bottomnav button{flex:1;border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:2px;
+    font-size:10.5px;font-weight:600;color:var(--faint);padding:5px 2px;cursor:pointer;border-radius:10px;position:relative}
+  .bottomnav button .ic{font-size:19px}
+  .bottomnav button.on{color:var(--point-deep)}
+  .bottomnav button .cnt{position:absolute;top:0;right:calc(50% - 20px);background:var(--point);color:#fff;
+    font-size:10px;font-weight:800;border-radius:99px;min-width:16px;height:16px;line-height:16px;padding:0 4px}
+  .kpis{grid-template-columns:1fr 1fr}
+  .row3{grid-template-columns:1fr}
+  .row2{grid-template-columns:1fr}
+  .barrow .lb{width:92px;flex-basis:92px}
+  .task .assg{margin-left:0;width:100%}
+}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+
+<script>
+/* =====================================================================
+   쏘플 공간관리 시스템 (SSOPLE Space Management)
+   Cloudflare Pages + Functions + D1 / 데모 모드(localStorage) 겸용 SPA
+   ===================================================================== */
+"use strict";
+
+/* ---------- 상수 ---------- */
+const ROLE_LABEL = {owner:'대표', manager:'총괄관리자', worker:'청소근무자', facility:'시설관리자'};
+const SLOT_LABEL = {day:'낮타임', night:'밤타임', allday:'올데이', etc:'기타'};
+const SLOT_SHORT = {day:'낮', night:'밤', allday:'올', etc:'기'};
+const CLEAN_STATUS = {todo:'대기', done:'확인 대기', redo:'보완요청', confirmed:'확인완료', skip:'생략'};
+const ISSUE_STATUS = ['접수','확인','진행중','완료','보류'];
+const ISSUE_STATUS_PILL = {'접수':'red','확인':'blue','진행중':'amber','완료':'green','보류':'gray'};
+const ISSUE_CATS = ['수리·고장','신규 구매','오염·특수청소','정기점검','기타'];
+const ISSUE_EQUIP = ['도어락','와이파이','TV·빔','마이크·스피커','냉난방','화장실','전기·조명','주방기기','PC·게임기','가구·소품','해충·방역','비품·소모품','기타'];
+const PRIORITY = ['보통','긴급','낮음'];
+const CH_STATUS = ['운영중','등록필요','점검필요','중단'];
+const CH_STATUS_PILL = {'운영중':'green','등록필요':'gray','점검필요':'amber','중단':'red'};
+const CHANNEL_PRESETS = ['네이버 플레이스·예약','네이버 지도·내비','네이버 블로그','스페이스클라우드','여기어때','프빗(Pvit)','인스타그램','유튜브','당근마켓','카카오톡 채널','자체 홈페이지'];
+const COST_FIELDS = [
+  ['rent','임대료'],['mgmt','관리비(전기·수도·가스)'],['supplies','물품구매비(소모품)'],
+  ['telecom','통신비'],['misc','기타관리비']
+];
+
+/* 기본 운영시간 (설정에서 변경 가능) */
+const DEFAULT_SETTINGS = {
+  times:{ day:['12:00','17:00'], night:['19:00','10:00'], allday:['12:00','22:00'] },
+  clean_before_min:30,           // 다음 입실 30분 전까지 청소 완료
+  mid_deadline:'18:30',          // 낮→밤 사이 정리 마감(점주 가이드 기준)
+  quick_items:['환기·탈취','테이블·바닥 간단 정리','쓰레기·음식물 정리','화장실 점검(휴지·물내림)','다음 예약 옵션·비품 준비 확인']
+};
+
+/* 공통 청소 체크리스트 시드 (총괄운영·세부실행 매뉴얼 8구역 기준) */
+const SEED_CHECK_ITEMS = [
+  ['증빙·상태 확인','퇴실 직후 전체 영상 촬영(30초~1분)'],
+  ['증빙·상태 확인','오염·파손·분실·흡연·구토 여부 확인'],
+  ['증빙·상태 확인','차감 가능성 있으면 정리 전 사진 확보'],
+  ['쓰레기·분리수거','쓰레기·음식물 수거 및 처리'],
+  ['쓰레기·분리수거','분리수거(일반·플라스틱·캔·유리) / 문밖 무단배출 확인'],
+  ['주방·설거지','설거지·식기 건조, 식기 수량 확인'],
+  ['주방·설거지','싱크대·인덕션·조리대 정리'],
+  ['주방·설거지','냉장고·전자레인지 내부 오염 확인'],
+  ['실내 청소','테이블·소파 얼룩 제거 및 정돈'],
+  ['실내 청소','바닥 청소기·밀대(머리카락·끈적임 확인)'],
+  ['실내 청소','포토존·창틀·소품 정돈'],
+  ['화장실','변기·세면대·거울 청소'],
+  ['화장실','휴지·물비누 보충, 배수·냄새 확인'],
+  ['기기·비품','전자기기·리모컨·마이크 원위치 및 작동 확인'],
+  ['기기·비품','TV·와이파이·냉난방 작동 확인'],
+  ['기기·비품','보드게임·소품 수량 확인'],
+  ['마무리','환기·탈취 후 냉난방·조명·전원 정리'],
+  ['마무리','소모품 재고 확인(휴지·물티슈·봉투·배터리)'],
+  ['마무리','도어락 작동·문 잠금 확인'],
+  ['마무리','청소 완료 사진 기록, 다음 예약 가능 상태 공유']
+];
+
+/* 직영 5개 지점 시드 */
+const SEED_BRANCHES = [
+  {name:'신촌 어반홀리', alias:'어반홀리', sort:1},
+  {name:'신촌 레스텔', alias:'레스텔', sort:2},
+  {name:'신촌 플레이션 2호점', alias:'플레이션2호점,플레이션 2호점,신촌게임 플레이션 2', sort:3, game:1},
+  {name:'신촌 플레이션 3호점', alias:'플레이션3호점,플레이션 3호점,신촌게임플레이션3', sort:4, game:1},
+  {name:'건대 플레이션 미니', alias:'건대플레이션,건대 플레이션', sort:5, game:1}
+];
+const SEED_GAME_ITEMS = [
+  'PC·콘솔·게임패드 전원 및 파손 확인',
+  '게임 타이틀·컨트롤러 수량 확인'
+];
+
+/* ---------- 유틸 ---------- */
+const $ = s=>document.querySelector(s);
+const $$ = s=>[...document.querySelectorAll(s)];
+const esc = s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = ()=> (crypto.randomUUID ? crypto.randomUUID() : 'id-'+Date.now()+'-'+Math.random().toString(16).slice(2));
+const fmt = n=> (n==null||isNaN(n)) ? '-' : Number(n).toLocaleString('ko-KR');
+const won = n=> (n==null||isNaN(n)) ? '-' : Number(n).toLocaleString('ko-KR')+'원';
+const pct = (n,d=1)=> (n==null||isNaN(n)) ? '-' : (n*100).toFixed(d)+'%';
+const pad2 = n=> String(n).padStart(2,'0');
+const todayStr = ()=>{ const d=new Date(); return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; };
+const thisYM = ()=> todayStr().slice(0,7);
+const addDays = (ds,n)=>{ const d=new Date(ds+'T00:00:00'); d.setDate(d.getDate()+n); return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; };
+const dowKo = ds=> '일월화수목금토'[new Date(ds+'T00:00:00').getDay()];
+const mdLabel = ds=> `${+ds.slice(5,7)}/${+ds.slice(8,10)}(${dowKo(ds)})`;
+const ymLabel = ym=> `${ym.slice(0,4)}년 ${+ym.slice(5,7)}월`;
+const daysInYM = ym=> new Date(+ym.slice(0,4), +ym.slice(5,7), 0).getDate();
+const monthRange = ym=> [ym+'-01', ym+'-'+pad2(daysInYM(ym))];
+const shiftYM = (ym,n)=>{ const d=new Date(+ym.slice(0,4), +ym.slice(5,7)-1+n, 1); return `${d.getFullYear()}-${pad2(d.getMonth()+1)}`; };
+const t2m = t=>{ if(!t) return null; const [h,m]=t.split(':').map(Number); return h*60+(m||0); };
+const m2t = m=> pad2(Math.floor(m/60))+':'+pad2(m%60);
+/* 엑셀 시리얼 → 날짜/시각 */
+function serialToDate(v){
+  const ms = Math.round((v - 25569) * 86400) * 1000;
+  const d = new Date(ms);
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth()+1)}-${pad2(d.getUTCDate())}`;
+}
+function serialToTime(v){
+  const frac = v - Math.floor(v);
+  const mins = Math.round(frac*24*60);
+  return m2t(((mins%1440)+1440)%1440);
+}
+function parseAnyDate(v){
+  if(v==null||v==='') return null;
+  if(typeof v==='number') return serialToDate(v);
+  const s=String(v).trim().replace(/[.\/년월]/g,'-').replace(/일/g,'').replace(/\s+/g,'');
+  const m=s.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(m) return `${m[1]}-${pad2(m[2])}-${pad2(m[3])}`;
+  return null;
+}
+function toast(msg){
+  const t=document.createElement('div'); t.className='toast'; t.textContent=msg;
+  document.body.appendChild(t); setTimeout(()=>t.remove(),2200);
+}
+
+/* =====================================================================
+   데이터 계층 — API 모드(Cloudflare D1) / 데모 모드(이 기기 localStorage)
+   ===================================================================== */
+const DEMO_KEY = 'ssople_spms_demo_v1';
+
+async function api(path, method='GET', body){
+  if(S.mode==='demo') return demoApi(path, method, body);
+  const TOKEN = localStorage.getItem('spms_token') || '';
+  const res = await fetch('/api'+path, {
+    method,
+    headers:Object.assign({'Content-Type':'application/json'}, TOKEN?{'Authorization':'Bearer '+TOKEN}:{}),
+    body: body!=null ? JSON.stringify(body) : undefined
+  });
+  if(res.status===401){ doLogout(true); throw new Error('로그인이 필요합니다'); }
+  let j=null; try{ j=await res.json(); }catch(e){ j={error:'서버 응답 오류'} }
+  if(!res.ok) throw new Error(j.error||'요청 처리에 실패했습니다');
+  return j;
+}
+
+/* ---------- 데모 엔진 ---------- */
+function demoDB(){
+  let db = null;
+  try{ db = JSON.parse(localStorage.getItem(DEMO_KEY)||'null'); }catch(e){}
+  if(!db){
+    db = {users:[],branches:[],check_items:[],reservations:[],cleanings:[],issues:[],channels:[],costs:[],settings:JSON.parse(JSON.stringify(DEFAULT_SETTINGS)),session:null};
+    SEED_BRANCHES.forEach(b=>{
+      const id=uid();
+      db.branches.push({id, name:b.name, alias:b.alias, memo:'', default_worker:null, sort:b.sort, active:1});
+      CHANNEL_PRESETS.forEach((ch,i)=> db.channels.push({id:uid(), branch_id:id, channel:ch, url:'', status:'등록필요', owner:'', last_check:null, memo:'', sort:i}));
+      if(b.game) SEED_GAME_ITEMS.forEach((lb,i)=> db.check_items.push({id:uid(), scope:'branch', branch_id:id, category:'지점 특별관리', label:lb, sort:i+1, active:1}));
+    });
+    SEED_CHECK_ITEMS.forEach((it,i)=> db.check_items.push({id:uid(), scope:'common', branch_id:null, category:it[0], label:it[1], sort:i+1, active:1}));
+    demoSave(db);
+  }
+  if(!db.settings) db.settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+  return db;
+}
+function demoSave(db){ localStorage.setItem(DEMO_KEY, JSON.stringify(db)); }
+function dhash(s){ let h=5381; for(let i=0;i<s.length;i++) h=((h<<5)+h+s.charCodeAt(i))>>>0; return 'd'+h.toString(16); }
+const sanitizeUser = u=>({id:u.id, username:u.username, name:u.name, role:u.role, branch_ids:u.branch_ids||[], phone:u.phone||'', active:u.active});
+
+function demoApi(path, method, body){
+  const db = demoDB();
+  const me = db.session ? db.users.find(u=>u.id===db.session && u.active) : null;
+  const need = ()=>{ if(!me) throw new Error('로그인이 필요합니다'); };
+  const url = new URL('http://x'+path);
+  const p = url.pathname; const q = url.searchParams;
+  const seg = p.split('/').filter(Boolean);
+  const ok = v=>Promise.resolve(v);
+
+  if(p==='/health') return ok({ok:true, needSetup: db.users.length===0});
+  if(p==='/setup' && method==='POST'){
+    if(db.users.length) throw new Error('이미 초기 설정이 완료되었습니다');
+    const u={id:uid(), username:body.username.trim(), pw:dhash(body.password), name:body.name.trim(), role:'owner', branch_ids:[], phone:'', active:1};
+    db.users.push(u); db.session=u.id; demoSave(db);
+    return ok({token:'demo', user:sanitizeUser(u)});
+  }
+  if(p==='/login' && method==='POST'){
+    const u=db.users.find(x=>x.username===String(body.username||'').trim() && x.active);
+    if(!u || u.pw!==dhash(body.password||'')) throw new Error('아이디 또는 비밀번호가 올바르지 않습니다');
+    db.session=u.id; demoSave(db);
+    return ok({token:'demo', user:sanitizeUser(u)});
+  }
+  if(p==='/logout'){ db.session=null; demoSave(db); return ok({ok:true}); }
+  need();
+  const isMgr = me.role==='owner'||me.role==='manager';
+
+  if(p==='/bootstrap'){
+    return ok({user:sanitizeUser(me), users:db.users.map(sanitizeUser),
+      branches:[...db.branches].sort((a,b)=>a.sort-b.sort),
+      check_items:db.check_items, settings:db.settings});
+  }
+  if(p==='/data'){
+    const from=q.get('from'), to=q.get('to');
+    let res = db.reservations.filter(r=>r.res_date>=from && r.res_date<=to);
+    if(!isMgr){
+      res = res.map(r=>({id:r.id, branch_id:r.branch_id, res_date:r.res_date, slot:r.slot, start_t:r.start_t, end_t:r.end_t, source:r.source, ckey:dhash((r.customer||'')+(r.phone||''))}));
+    }
+    const cl = db.cleanings.filter(c=>c.clean_date>=addDays(from,-1) && c.clean_date<=addDays(to,1));
+    const yms=new Set(); let d=from.slice(0,7); while(d<=to.slice(0,7)){ yms.add(d); d=shiftYM(d,1); }
+    const costs = isMgr ? db.costs.filter(c=>yms.has(c.ym)) : [];
+    return ok({reservations:res, cleanings:cl, costs});
+  }
+  if(p==='/issues' && method==='GET') return ok({issues:[...db.issues].sort((a,b)=>(b.created_at||'').localeCompare(a.created_at||''))});
+  if(p==='/issues' && method==='POST'){
+    const it=Object.assign({id:uid(), status:'접수', reporter:me.id, comments:[], created_at:new Date().toISOString(), resolved_at:null, assignee:null, cost:null}, body);
+    db.issues.push(it); demoSave(db); return ok({issue:it});
+  }
+  if(seg[0]==='issues' && seg[2]==='comments' && method==='POST'){
+    const it=db.issues.find(x=>x.id===seg[1]); if(!it) throw new Error('이슈를 찾을 수 없습니다');
+    it.comments=it.comments||[]; it.comments.push({id:uid(), by:me.name, text:body.text, at:new Date().toISOString()});
+    demoSave(db); return ok({issue:it});
+  }
+  if(seg[0]==='issues' && seg[1] && method==='PATCH'){
+    const it=db.issues.find(x=>x.id===seg[1]); if(!it) throw new Error('이슈를 찾을 수 없습니다');
+    if(!(isMgr||me.role==='facility')) throw new Error('처리 권한이 없습니다');
+    Object.assign(it, body);
+    if(body.status==='완료' && !it.resolved_at) it.resolved_at=new Date().toISOString();
+    demoSave(db); return ok({issue:it});
+  }
+  if(p==='/channels' && method==='GET') return ok({channels:db.channels});
+  if(p==='/channels' && method==='POST'){
+    if(!isMgr) throw new Error('권한이 없습니다');
+    const c=Object.assign({id:uid(), url:'', status:'등록필요', owner:'', last_check:null, memo:'', sort:99}, body);
+    db.channels.push(c); demoSave(db); return ok({channel:c});
+  }
+  if(seg[0]==='channels' && seg[1]==='ensure' && method==='POST'){
+    if(!isMgr) throw new Error('권한이 없습니다');
+    CHANNEL_PRESETS.forEach((ch,i)=>{ if(!db.channels.some(c=>c.branch_id===body.branch_id && c.channel===ch))
+      db.channels.push({id:uid(), branch_id:body.branch_id, channel:ch, url:'', status:'등록필요', owner:'', last_check:null, memo:'', sort:i}); });
+    demoSave(db); return ok({channels:db.channels});
+  }
+  if(seg[0]==='channels' && seg[1] && method==='PATCH'){
+    if(!isMgr) throw new Error('권한이 없습니다');
+    const c=db.channels.find(x=>x.id===seg[1]); if(!c) throw new Error('채널을 찾을 수 없습니다');
+    Object.assign(c, body); demoSave(db); return ok({channel:c});
+  }
+  if(seg[0]==='channels' && seg[1] && method==='DELETE'){
+    if(!isMgr) throw new Error('권한이 없습니다');
+    db.channels=db.channels.filter(x=>x.id!==seg[1]); demoSave(db); return ok({ok:true});
+  }
+  if(p==='/cleanings' && method==='POST'){
+    let c=db.cleanings.find(x=>x.task_key===body.task_key);
+    if(!c){ c=Object.assign({id:uid(), checks:{}, note:'', status:'todo', created_at:new Date().toISOString()}, body); db.cleanings.push(c); }
+    else Object.assign(c, body);
+    demoSave(db); return ok({cleaning:c});
+  }
+  if(seg[0]==='cleanings' && seg[1] && method==='PATCH'){
+    const c=db.cleanings.find(x=>x.id===seg[1]); if(!c) throw new Error('청소 기록을 찾을 수 없습니다');
+    const reviewing = 'feedback' in body || ['confirmed','redo'].includes(body.status);
+    if(reviewing && !isMgr) throw new Error('확인 권한이 없습니다');
+    Object.assign(c, body); demoSave(db); return ok({cleaning:c});
+  }
+  if(p==='/reservations' && method==='POST'){
+    if(!isMgr) throw new Error('권한이 없습니다');
+    const r=Object.assign({id:uid(), source:'manual', created_at:new Date().toISOString()}, body);
+    db.reservations.push(r); demoSave(db); return ok({reservation:r});
+  }
+  if(seg[0]==='reservations' && seg[1]==='import' && method==='POST'){
+    if(!isMgr) throw new Error('권한이 없습니다');
+    const yms=new Set(body.rows.map(r=>r.res_date.slice(0,7)));
+    if(body.mode==='replace') db.reservations=db.reservations.filter(r=>!(r.source==='excel' && yms.has(r.res_date.slice(0,7))));
+    let added=0;
+    body.rows.forEach(r=>{
+      if(body.mode==='merge' && r.resno && db.reservations.some(x=>x.resno===r.resno)) return;
+      db.reservations.push(Object.assign({id:uid(), source:'excel', created_at:new Date().toISOString()}, r)); added++;
+    });
+    demoSave(db); return ok({added});
+  }
+  if(seg[0]==='reservations' && seg[1] && method==='DELETE'){
+    if(!isMgr) throw new Error('권한이 없습니다');
+    db.reservations=db.reservations.filter(r=>r.id!==seg[1]); demoSave(db); return ok({ok:true});
+  }
+  if(p==='/costs/save' && method==='POST'){
+    if(!isMgr) throw new Error('권한이 없습니다');
+    body.rows.forEach(r=>{
+      let c=db.costs.find(x=>x.ym===body.ym && x.branch_id===r.branch_id);
+      if(!c){ c={id:uid(), ym:body.ym, branch_id:r.branch_id}; db.costs.push(c); }
+      Object.assign(c, r);
+    });
+    demoSave(db); return ok({ok:true});
+  }
+  if(p==='/branches' && method==='POST'){
+    if(!isMgr) throw new Error('권한이 없습니다');
+    const b=Object.assign({id:uid(), alias:'', memo:'', default_worker:null, sort:db.branches.length+1, active:1}, body);
+    db.branches.push(b); demoSave(db); return ok({branch:b});
+  }
+  if(seg[0]==='branches' && seg[1] && method==='PATCH'){
+    if(!isMgr) throw new Error('권한이 없습니다');
+    const b=db.branches.find(x=>x.id===seg[1]); if(!b) throw new Error('지점을 찾을 수 없습니다');
+    Object.assign(b, body); demoSave(db); return ok({branch:b});
+  }
+  if(p==='/check_items' && method==='POST'){
+    if(!isMgr) throw new Error('권한이 없습니다');
+    const it=Object.assign({id:uid(), scope:'common', branch_id:null, category:'기타', sort:99, active:1}, body);
+    db.check_items.push(it); demoSave(db); return ok({item:it});
+  }
+  if(seg[0]==='check_items' && seg[1] && method==='PATCH'){
+    if(!isMgr) throw new Error('권한이 없습니다');
+    const it=db.check_items.find(x=>x.id===seg[1]); if(!it) throw new Error('항목을 찾을 수 없습니다');
+    Object.assign(it, body); demoSave(db); return ok({item:it});
+  }
+  if(seg[0]==='check_items' && seg[1] && method==='DELETE'){
+    if(!isMgr) throw new Error('권한이 없습니다');
+    db.check_items=db.check_items.filter(x=>x.id!==seg[1]); demoSave(db); return ok({ok:true});
+  }
+  if(p==='/users' && method==='POST'){
+    if(me.role!=='owner') throw new Error('계정 관리는 대표만 가능합니다');
+    if(db.users.some(u=>u.username===body.username.trim())) throw new Error('이미 사용 중인 아이디입니다');
+    const u={id:uid(), username:body.username.trim(), pw:dhash(body.password), name:body.name.trim(), role:body.role, branch_ids:body.branch_ids||[], phone:body.phone||'', active:1};
+    db.users.push(u); demoSave(db); return ok({user:sanitizeUser(u)});
+  }
+  if(seg[0]==='users' && seg[1] && method==='PATCH'){
+    if(me.role!=='owner') throw new Error('계정 관리는 대표만 가능합니다');
+    const u=db.users.find(x=>x.id===seg[1]); if(!u) throw new Error('계정을 찾을 수 없습니다');
+    const patch=Object.assign({},body);
+    if(patch.password){ u.pw=dhash(patch.password); delete patch.password; }
+    Object.assign(u, patch); demoSave(db); return ok({user:sanitizeUser(u)});
+  }
+  if(p==='/settings' && method==='POST'){
+    if(!isMgr) throw new Error('권한이 없습니다');
+    db.settings=body.settings; demoSave(db); return ok({settings:db.settings});
+  }
+  throw new Error('알 수 없는 요청: '+p);
+}
+
+/* ==================================================
+   앱 상태 · 라우터 · 레이아웃
+   ================================================== */
+const S = {
+  mode:'demo', user:null, users:[], branches:[], check_items:[],
+  settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)),
+  reservations:[], cleanings:[], costs:[], issues:[], channels:[],
+  range:{from:null,to:null}, loaded:false
+};
+const isMgr = ()=> !!S.user && (S.user.role==='owner' || S.user.role==='manager');
+const bMap  = ()=> Object.fromEntries(S.branches.map(b=>[b.id,b]));
+const bName = id=> (bMap()[id]||{name:'-'}).name;
+const activeBranches = ()=> S.branches.filter(b=>b.active!==0).sort((a,b)=>(a.sort||0)-(b.sort||0));
+const myBranches = ()=>{
+  if(isMgr() || !S.user.branch_ids || !S.user.branch_ids.length) return activeBranches();
+  return activeBranches().filter(b=> S.user.branch_ids.includes(b.id));
+};
+const workerNames = ()=> S.users.filter(u=>u.active!==0 && u.role!=='owner').map(u=>u.name);
+
+async function loadData(from,to){
+  S.range={from,to};
+  const d = await api(`/data?from=${from}&to=${to}`);
+  S.reservations=d.reservations||[]; S.cleanings=d.cleanings||[]; S.costs=d.costs||[];
+}
+async function loadIssues(){ const d=await api('/issues'); S.issues=d.issues||[]; }
+async function loadChannels(){ const d=await api('/channels'); S.channels=d.channels||[]; }
+
+async function boot(){
+  const b = await api('/bootstrap');
+  S.user=b.user; S.users=b.users||[]; S.branches=b.branches||[];
+  S.check_items=b.check_items||[]; S.settings=b.settings||S.settings;
+  const t=todayStr();
+  await loadData(addDays(t,-7), addDays(t,27));
+  await loadIssues(); await loadChannels();
+  S.loaded=true;
+  if(!location.hash || location.hash==='#/' || location.hash==='#') location.hash=defaultRoute();
+  render();
+}
+function defaultRoute(){ return (S.user && S.user.role==='worker') ? '#/clean' : '#/dash'; }
+
+async function doLogout(){
+  try{ await api('/logout','POST',{}); }catch(e){}
+  localStorage.removeItem('spms_token');
+  S.user=null; S.loaded=false;
+  location.hash=''; render();
+}
+
+/* ---------- 라우터 ---------- */
+window.addEventListener('hashchange', ()=>{ closeModal(); render(); });
+function route(){
+  const h=(location.hash||'').replace(/^#\/?/,'');
+  const seg=h.split('/').filter(Boolean);
+  return {page:seg[0]||'', arg:seg.slice(1).join('/')};
+}
+
+function navItems(){
+  const r=S.user.role;
+  const pendReview = isMgr() ? S.cleanings.filter(c=>c.status==='done').length : 0;
+  const openIssues = S.issues.filter(i=>i.status!=='완료' && i.status!=='보류').length;
+  if(r==='worker') return [
+    {h:'clean', ic:'🧹', t:'내 청소'},
+    {h:'fac',   ic:'🔧', t:'시설 신고'},
+    {h:'me',    ic:'👤', t:'내 정보'}
+  ];
+  if(r==='facility') return [
+    {h:'dash',  ic:'🏠', t:'대시보드'},
+    {h:'fac',   ic:'🔧', t:'시설관리', cnt:openIssues},
+    {h:'clean', ic:'🧹', t:'청소 현황'},
+    {h:'me',    ic:'👤', t:'내 정보'}
+  ];
+  return [
+    {h:'dash',  ic:'🏠', t:'대시보드'},
+    {h:'clean', ic:'🧹', t:'청소관리', cnt:pendReview},
+    {h:'fac',   ic:'🔧', t:'시설관리', cnt:openIssues},
+    {h:'mkt',   ic:'📣', t:'홍보관리'},
+    {h:'kpi',   ic:'📊', t:'매출·손익'},
+    {h:'set',   ic:'⚙️', t:'설정'}
+  ];
+}
+const PAGE_TITLE = {dash:'대시보드', clean:'청소관리', task:'청소 체크리스트', fac:'시설관리', mkt:'홍보·노출관리', kpi:'매출·손익', set:'설정', me:'내 정보'};
+
+function layout(active, inner, subtitle){
+  const items=navItems();
+  const u=S.user;
+  const modeTag = S.mode==='demo' ? `<span class="pill amber">데모 모드</span>` : '';
+  $('#app').innerHTML = `
+  <div class="shell">
+    <aside class="side">
+      <div class="brand"><span class="mark">S</span><div><div class="t1">쏘플파티룸</div><div class="t2">공간관리 시스템</div></div></div>
+      <nav>
+        ${items.map(it=>`<button class="navbtn ${active===it.h?'on':''}" data-nav="${it.h}">
+          <span class="ic">${it.ic}</span>${it.t}${it.cnt?`<span class="cnt">${it.cnt}</span>`:''}</button>`).join('')}
+      </nav>
+      <div class="me">
+        <div class="who"><div class="nm">${esc(u.name)}</div><div class="rl">${ROLE_LABEL[u.role]||u.role}</div></div>
+        <button class="btn ghost sm" id="btnLogout" style="margin-top:6px">로그아웃</button>
+      </div>
+    </aside>
+    <div class="main">
+      <header class="topbar">
+        <h1>${PAGE_TITLE[active]||'쏘플 공간관리'}</h1>
+        ${subtitle?`<span class="sub">${subtitle}</span>`:''}
+        <span class="sp"></span>
+        ${modeTag}
+        <span class="sub" style="font-weight:600">${esc(u.name)}</span>
+      </header>
+      <main class="content">${inner}</main>
+    </div>
+  </div>
+  <nav class="bottomnav">
+    ${items.map(it=>`<button class="${active===it.h?'on':''}" data-nav="${it.h}">
+      <span class="ic">${it.ic}</span>${it.t}${it.cnt?`<span class="cnt">${it.cnt}</span>`:''}</button>`).join('')}
+  </nav>`;
+  $$('[data-nav]').forEach(b=> b.onclick=()=>{ location.hash='#/'+b.dataset.nav; });
+  const lo=$('#btnLogout'); if(lo) lo.onclick=doLogout;
+}
+
+/* ---------- 모달 ---------- */
+function modal(title, body, foot){
+  closeModal();
+  const m=document.createElement('div'); m.className='mask'; m.id='mask';
+  m.innerHTML=`<div class="modal">
+    <div class="mh"><h3>${title}</h3><button class="x" id="mClose">✕</button></div>
+    <div id="mBody">${body}</div>
+    ${foot?`<div class="ft">${foot}</div>`:''}
+  </div>`;
+  document.body.appendChild(m);
+  m.addEventListener('click', e=>{ if(e.target===m) closeModal(); });
+  $('#mClose').onclick=closeModal;
+  return m;
+}
+function closeModal(){ const m=$('#mask'); if(m) m.remove(); }
+function confirm2(msg){
+  return new Promise(res=>{
+    modal('확인', `<p style="margin:4px 0 0;font-size:14.5px;line-height:1.6">${msg}</p>`,
+      `<button class="btn" id="cfNo">취소</button><button class="btn primary" id="cfYes">확인</button>`);
+    $('#cfNo').onclick=()=>{ closeModal(); res(false); };
+    $('#cfYes').onclick=()=>{ closeModal(); res(true); };
+  });
+}
+
+/* ---------- 로그인 · 초기 설정 ---------- */
+function renderLogin(err){
+  $('#app').innerHTML=`
+  <div class="auth"><div class="authcard">
+    <div class="lg"><span class="mark">S</span><h2>쏘플 공간관리</h2></div>
+    <p class="ds">직영점 청소·시설·홍보·손익을 한곳에서 관리합니다.</p>
+    ${err?`<div class="autherr">${esc(err)}</div>`:''}
+    <div class="field"><label>아이디</label><input class="inp" id="liId" autocomplete="username" placeholder="아이디"></div>
+    <div class="field"><label>비밀번호</label><input class="inp" id="liPw" type="password" autocomplete="current-password" placeholder="비밀번호"></div>
+    <button class="btn primary full" id="liGo" style="padding:12px;margin-top:4px">로그인</button>
+    ${S.mode==='demo'?`<p class="hint" style="margin:14px 0 0;text-align:center">데모 모드 · 서버 연결 없이 이 브라우저에만 저장됩니다.</p>`:''}
+  </div></div>`;
+  const go=async ()=>{
+    const username=$('#liId').value.trim(), password=$('#liPw').value;
+    if(!username||!password){ renderLogin('아이디와 비밀번호를 입력해 주세요.'); return; }
+    $('#liGo').disabled=true; $('#liGo').textContent='확인 중...';
+    try{
+      const r=await api('/login','POST',{username,password});
+      if(r.token) localStorage.setItem('spms_token', r.token);
+      await boot();
+    }catch(e){ renderLogin(e.message||'로그인에 실패했습니다.'); }
+  };
+  $('#liGo').onclick=go;
+  $('#liPw').addEventListener('keydown',e=>{ if(e.key==='Enter') go(); });
+  $('#liId').focus();
+}
+
+function renderSetup(err){
+  $('#app').innerHTML=`
+  <div class="auth"><div class="authcard">
+    <div class="lg"><span class="mark">S</span><h2>처음 설정</h2></div>
+    <p class="ds">대표 계정을 만들면 시스템이 시작됩니다. 지점과 체크리스트 기본값은 자동으로 준비됩니다.</p>
+    ${err?`<div class="autherr">${esc(err)}</div>`:''}
+    <div class="field"><label>이름</label><input class="inp" id="suNm" placeholder="예) 최시준"></div>
+    <div class="field"><label>아이디</label><input class="inp" id="suId" autocomplete="username" placeholder="로그인에 사용할 아이디"></div>
+    <div class="field"><label>비밀번호</label><input class="inp" id="suPw" type="password" autocomplete="new-password" placeholder="6자 이상"></div>
+    <div class="field"><label>비밀번호 확인</label><input class="inp" id="suPw2" type="password" autocomplete="new-password"></div>
+    <button class="btn primary full" id="suGo" style="padding:12px;margin-top:4px">대표 계정 만들기</button>
+  </div></div>`;
+  $('#suGo').onclick=async ()=>{
+    const name=$('#suNm').value.trim(), username=$('#suId').value.trim(), pw=$('#suPw').value, pw2=$('#suPw2').value;
+    if(!name||!username||!pw){ renderSetup('모든 항목을 입력해 주세요.'); return; }
+    if(pw.length<6){ renderSetup('비밀번호는 6자 이상으로 해주세요.'); return; }
+    if(pw!==pw2){ renderSetup('비밀번호 확인이 일치하지 않습니다.'); return; }
+    $('#suGo').disabled=true; $('#suGo').textContent='만드는 중...';
+    try{
+      const r=await api('/setup','POST',{name,username,password:pw});
+      if(r.token) localStorage.setItem('spms_token', r.token);
+      await boot();
+    }catch(e){ renderSetup(e.message||'설정에 실패했습니다.'); }
+  };
+  $('#suNm').focus();
+}
+
+/* ==================================================
+   청소 일정 파생 (예약 → 청소 작업)
+   ================================================== */
+const KIND_LABEL = {day:'정식 청소', night:'정식 청소', allday:'정식 청소', mid:'중간 정리', etc:'청소'};
+S.ui = {cleanTab:0, cleanFrom:null, cleanTo:null, cleanBranch:'', resYM:thisYM(), kpiYM:thisYM(), kpiTab:0, mktBranch:'', facFilter:'open', setTab:0};
+
+function resActive(r){ return !String(r.status||'').includes('취소'); }
+function sameCustomer(a,b){
+  if(a.ckey && b.ckey) return a.ckey===b.ckey;
+  return !!(a.customer && a.customer===b.customer && String(a.phone||'')===String(b.phone||''));
+}
+function deriveTasks(){
+  const st=S.settings;
+  const stStart = slot=> (st.times[slot]||['12:00'])[0];
+  const stEnd   = slot=> (st.times[slot]||['','17:00'])[1];
+  const rs=S.reservations.filter(resActive);
+  const byBD={}, byB={};
+  rs.forEach(r=>{
+    (byBD[r.branch_id+'|'+r.res_date]=byBD[r.branch_id+'|'+r.res_date]||{})[r.slot]=r;
+    (byB[r.branch_id]=byB[r.branch_id]||[]).push(r);
+  });
+  Object.values(byB).forEach(a=>a.sort((x,y)=>
+    (x.res_date+(x.start_t||stStart(x.slot))).localeCompare(y.res_date+(y.start_t||stStart(y.slot)))));
+  const nextRes=(bid,date,time)=> (byB[bid]||[]).find(r=>{
+    const s=r.start_t||stStart(r.slot);
+    return r.res_date>date || (r.res_date===date && s>=time);
+  });
+  const winAfter=(bid,date,fromT)=>{
+    const n=nextRes(bid,date,fromT);
+    if(!n) return fromT+' 이후';
+    const ns=n.start_t||stStart(n.slot);
+    const dl=m2t(Math.max(0,t2m(ns)-(st.clean_before_min||30)));
+    if(n.res_date===date) return `${fromT} ~ ${dl} · 다음 입실 ${ns}`;
+    return `${fromT} 이후 · ${mdLabel(n.res_date)} ${dl}까지`;
+  };
+  const mk=(r,kind,clean_date,window_label,after_label,skipAllowed)=>({
+    key:`${r.branch_id}|${clean_date}|${kind}`, branch_id:r.branch_id,
+    clean_date, kind, window_label, after_label, skipAllowed:!!skipAllowed, res_id:r.id
+  });
+  const tasks=[];
+  rs.forEach(r=>{
+    const slots=byBD[r.branch_id+'|'+r.res_date]||{};
+    if(r.slot==='day'){
+      const night=slots.night;
+      const dayEnd=r.end_t||stEnd('day');
+      if(night){
+        const nightStart=night.start_t||stStart('night');
+        const dl=m2t(Math.min(t2m(st.mid_deadline||'18:30'), t2m(nightStart)-(st.clean_before_min||30)));
+        tasks.push(mk(r,'mid', r.res_date, `${dayEnd} ~ ${dl}`, '낮타임 종료 후 → 밤타임 입실 전', sameCustomer(r,night)));
+      }else{
+        tasks.push(mk(r,'day', r.res_date, winAfter(r.branch_id,r.res_date,dayEnd), '낮타임 이용 종료 후', false));
+      }
+    }else if(r.slot==='night'){
+      const cd=addDays(r.res_date,1);
+      tasks.push(mk(r,'night', cd, winAfter(r.branch_id,cd, r.end_t||stEnd('night')), `밤타임 퇴실 후 · ${mdLabel(r.res_date)} 이용분`, false));
+    }else if(r.slot==='allday'){
+      tasks.push(mk(r,'allday', r.res_date, winAfter(r.branch_id,r.res_date, r.end_t||stEnd('allday')), '올데이 이용 종료 후', false));
+    }else{
+      tasks.push(mk(r,'etc', r.res_date, winAfter(r.branch_id,r.res_date, r.end_t||'22:00'), '이용 종료 후', false));
+    }
+  });
+  S.cleanings.filter(c=>c.manual).forEach(c=>{
+    if(!tasks.some(t=>t.key===c.task_key))
+      tasks.push({key:c.task_key, branch_id:c.branch_id, clean_date:c.clean_date, kind:c.kind||'etc',
+        window_label:c.window_label||'시간 협의', after_label:'수동 등록', skipAllowed:false, manual:true});
+  });
+  tasks.sort((a,b)=> (a.clean_date+'|'+a.window_label).localeCompare(b.clean_date+'|'+b.window_label)
+    || bName(a.branch_id).localeCompare(bName(b.branch_id)));
+  return tasks;
+}
+const cleanRec = key=> S.cleanings.find(c=>c.task_key===key);
+const taskStatus = t=>{ const c=cleanRec(t.key); return c?c.status:'todo'; };
+
+function itemsFor(branch_id, kind){
+  if(kind==='mid'){
+    return (S.settings.quick_items||[]).map((lb,i)=>({id:'q'+i, category:'빠른 정리', label:lb, special:false}));
+  }
+  const common=S.check_items.filter(i=>i.active!==0 && i.scope==='common')
+    .sort((a,b)=>(a.sort||0)-(b.sort||0))
+    .map(i=>({id:i.id, category:i.category, label:i.label, special:false}));
+  const sp=S.check_items.filter(i=>i.active!==0 && i.scope==='branch' && i.branch_id===branch_id)
+    .sort((a,b)=>(a.sort||0)-(b.sort||0))
+    .map(i=>({id:i.id, category:i.category||'지점 특별관리', label:i.label, special:true}));
+  return common.concat(sp);
+}
+
+async function upsertClean(payload){
+  const r=await api('/cleanings','POST',payload);
+  const idx=S.cleanings.findIndex(c=>c.task_key===r.cleaning.task_key);
+  if(idx>=0) S.cleanings[idx]=r.cleaning; else S.cleanings.push(r.cleaning);
+  return r.cleaning;
+}
+async function patchClean(id,patch){
+  const r=await api('/cleanings/'+id,'PATCH',patch);
+  const idx=S.cleanings.findIndex(c=>c.id===id);
+  if(idx>=0) S.cleanings[idx]=r.cleaning;
+  return r.cleaning;
+}
+
+function taskCard(t, opt={}){
+  const c=cleanRec(t.key);
+  const stt=c?c.status:'todo';
+  const items=itemsFor(t.branch_id,t.kind);
+  const done=c?items.filter(i=>c.checks && c.checks[i.id]).length:0;
+  const pctW=items.length? Math.round(done/items.length*100):0;
+  const assg=c&&c.assignee?c.assignee:'';
+  const assignHtml = opt.assign
+    ? `<label class="assg" onclick="event.stopPropagation()">담당
+        <select class="sel" style="width:auto;padding:5px 26px 5px 9px;font-size:12.5px" data-assign="${t.key}">
+          <option value="">미배정</option>
+          ${workerNames().map(n=>`<option ${n===assg?'selected':''}>${esc(n)}</option>`).join('')}
+        </select></label>`
+    : `<span class="assg">👤 ${assg?esc(assg):'<span style="color:var(--faint)">미배정</span>'}</span>`;
+  return `<div class="task ${stt}" data-task="${t.key}">
+    <div class="l1">
+      <span class="bn">${esc(bName(t.branch_id))}</span>
+      <span class="pill ${t.kind==='mid'?'amber':'line'}">${KIND_LABEL[t.kind]||'청소'}</span>
+      <span class="pill ${stt}">${CLEAN_STATUS[stt]||stt}</span>
+      ${t.skipAllowed&&stt!=='skip'?`<span class="pill gray">동일 고객 연속 · 생략 가능</span>`:''}
+    </div>
+    <div class="l2">
+      <span>🕐 ${esc(t.window_label)}</span>
+      <span>${esc(t.after_label)}</span>
+      ${stt!=='skip'?`<span class="rail">체크 <span class="bar"><i style="width:${pctW}%"></i></span><b class="num">${done}/${items.length}</b></span>`:''}
+      ${assignHtml}
+    </div>
+    ${c&&c.note?`<div class="hint" style="margin-top:7px">📝 ${esc(c.note)}</div>`:''}
+    ${stt==='redo'&&c.feedback?`<div class="hint warn" style="margin-top:7px;border-radius:8px;padding:7px 10px">보완 요청: ${esc(c.feedback)}</div>`:''}
+  </div>`;
+}
+function bindTaskCards(root){
+  (root||document).querySelectorAll('[data-task]').forEach(el=>{
+    el.addEventListener('click',()=>{ location.hash='#/task/'+encodeURIComponent(el.dataset.task); });
+  });
+  (root||document).querySelectorAll('[data-assign]').forEach(sel=>{
+    sel.addEventListener('change', async ()=>{
+      const key=sel.dataset.assign;
+      const t=deriveTasks().find(x=>x.key===key) || {branch_id:key.split('|')[0], clean_date:key.split('|')[1], kind:key.split('|')[2]};
+      try{
+        await upsertClean({task_key:key, branch_id:t.branch_id, clean_date:t.clean_date, kind:t.kind,
+          window_label:t.window_label||'', assignee:sel.value});
+        toast(sel.value?`${sel.value} 님에게 배정했습니다`:'배정을 해제했습니다');
+        render();
+      }catch(e){ toast(e.message); }
+    });
+  });
+}
+
+/* ==================================================
+   대시보드
+   ================================================== */
+function vDash(){
+  const today=todayStr();
+  const tasks=deriveTasks();
+  const vis = isMgr()||S.user.role==='facility' ? tasks : tasks.filter(t=>myBranches().some(b=>b.id===t.branch_id));
+  const todayT=vis.filter(t=>t.clean_date===today);
+  const todayDone=todayT.filter(t=>['done','confirmed','skip'].includes(taskStatus(t))).length;
+  const overdue=vis.filter(t=>t.clean_date<today && ['todo','redo'].includes(taskStatus(t)));
+  const pend=S.cleanings.filter(c=>c.status==='done');
+  const openIss=S.issues.filter(i=>!['완료','보류'].includes(i.status));
+  const ym=thisYM();
+  const monthRev=S.reservations.filter(r=>resActive(r)&&r.res_date.slice(0,7)===ym).reduce((s,r)=>s+(+r.amount||0),0);
+  let html=`
+  <section>
+    <div class="kpis">
+      <div class="kpi"><div class="k">오늘 청소</div><div class="v num">${todayDone}<span style="font-size:14px;color:var(--faint)"> / ${todayT.length}건</span></div><div class="s">${mdLabel(today)} 기준</div></div>
+      ${isMgr()?`<div class="kpi"><div class="k">확인 대기</div><div class="v num">${pend.length}건</div><div class="s">근무자 제출 · 검토 필요</div></div>`:''}
+      <div class="kpi"><div class="k">진행 중 시설 이슈</div><div class="v num">${openIss.length}건</div><div class="s">완료·보류 제외</div></div>
+      ${isMgr()?`<div class="kpi"><div class="k">${+ym.slice(5,7)}월 매출</div><div class="v num">${fmt(monthRev)}<span style="font-size:13px">원</span></div><div class="s">취소 제외 · 업로드/등록 기준</div></div>`:''}
+    </div>
+  </section>
+  ${overdue.length?`
+  <section>
+    <p class="sect-t" style="color:var(--point-deep)">⏰ 지난 미완료 청소 <span class="cnt">${overdue.length}</span></p>
+    <div class="tasklist">${overdue.slice(0,6).map(t=>taskCard(t,{assign:isMgr()})).join('')}</div>
+  </section>`:''}
+  <section>
+    <p class="sect-t">오늘의 청소 일정 <span class="cnt">${todayT.length}</span></p>
+    ${todayT.length?`<div class="tasklist">${todayT.map(t=>taskCard(t,{assign:isMgr()})).join('')}</div>`
+      :`<div class="empty">오늘 예정된 청소가 없습니다. 예약이 등록되면 자동으로 일정이 만들어집니다.</div>`}
+  </section>`;
+  if(isMgr()&&pend.length){
+    html+=`<section>
+      <p class="sect-t">확인 대기 <span class="cnt">${pend.length}</span> <span class="hint" style="font-weight:500">청소관리 → 확인·피드백에서 검토할 수 있습니다</span></p>
+      <div class="tasklist">${pend.slice(0,4).map(c=>{
+        const t=tasks.find(x=>x.key===c.task_key)||{key:c.task_key,branch_id:c.branch_id,clean_date:c.clean_date,kind:c.kind||'etc',window_label:c.window_label||'',after_label:'',skipAllowed:false};
+        return taskCard(t,{});
+      }).join('')}</div>
+    </section>`;
+  }
+  if(openIss.length){
+    html+=`<section>
+      <p class="sect-t">시설 이슈 <span class="cnt">${openIss.length}</span></p>
+      ${openIss.slice(0,4).map(issueCard).join('')}
+    </section>`;
+  }
+  layout('dash', html, mdLabel(today));
+  bindTaskCards(); bindIssueCards();
+}
+
+/* ==================================================
+   청소관리
+   ================================================== */
+function vClean(){
+  if(S.user.role==='worker'){ vCleanWorker(); return; }
+  const tabs=['일정 현황','확인·피드백','예약 등록','체크리스트 설정'];
+  const canEdit=isMgr();
+  const tb=canEdit?S.ui.cleanTab:0;
+  let body='';
+  if(tb===0) body=cleanTabSchedule(canEdit);
+  else if(tb===1) body=cleanTabReview();
+  else if(tb===2) body=cleanTabRes();
+  else body=cleanTabItems();
+  layout('clean', `
+    ${canEdit?`<div class="tabs" style="margin-bottom:16px">${tabs.map((t,i)=>{
+      const cnt=i===1?S.cleanings.filter(c=>c.status==='done').length:0;
+      return `<button class="${tb===i?'on':''}" data-ctab="${i}">${t}${cnt?` <span class="pill red" style="padding:1px 7px">${cnt}</span>`:''}</button>`;
+    }).join('')}</div>`:''}
+    ${body}`);
+  $$('[data-ctab]').forEach(b=>b.onclick=()=>{ S.ui.cleanTab=+b.dataset.ctab; render(); });
+  if(tb===0){ bindSchedule(canEdit); }
+  else if(tb===1){ bindReview(); }
+  else if(tb===2){ bindResGrid(); }
+  else { bindItems(); }
+}
+function vCleanWorker(){
+  const today=todayStr();
+  const tasks=deriveTasks().filter(t=>myBranches().some(b=>b.id===t.branch_id));
+  const mine=t=>{ const c=cleanRec(t.key); return !c||!c.assignee||c.assignee===S.user.name; };
+  const list=tasks.filter(mine);
+  const overdue=list.filter(t=>t.clean_date<today&&['todo','redo'].includes(taskStatus(t)));
+  const todayT=list.filter(t=>t.clean_date===today);
+  const next=list.filter(t=>t.clean_date>today&&t.clean_date<=addDays(today,7));
+  layout('clean', `
+    <p class="hint b" style="margin-bottom:16px">담당으로 배정되었거나 미배정 상태인 청소만 보입니다. 카드를 누르면 체크리스트가 열립니다.</p>
+    ${overdue.length?`<section><p class="sect-t" style="color:var(--point-deep)">⏰ 지난 미완료 <span class="cnt">${overdue.length}</span></p><div class="tasklist">${overdue.map(t=>taskCard(t)).join('')}</div></section>`:''}
+    <section><p class="sect-t">오늘 <span class="cnt">${todayT.length}</span></p>
+      ${todayT.length?`<div class="tasklist">${todayT.map(t=>taskCard(t)).join('')}</div>`:`<div class="empty">오늘 배정된 청소가 없습니다.</div>`}</section>
+    ${next.length?`<section><p class="sect-t">다가오는 일정(7일)</p><div class="tasklist">${next.map(t=>taskCard(t)).join('')}</div></section>`:''}
+  `, '내 청소 일정');
+  bindTaskCards();
+}
+
+function cleanTabSchedule(canEdit){
+  const today=todayStr();
+  if(!S.ui.cleanFrom){ S.ui.cleanFrom=today; S.ui.cleanTo=addDays(today,6); }
+  const tasks=deriveTasks().filter(t=>
+    t.clean_date>=S.ui.cleanFrom && t.clean_date<=S.ui.cleanTo &&
+    (!S.ui.cleanBranch||t.branch_id===S.ui.cleanBranch));
+  const overdue=deriveTasks().filter(t=>t.clean_date<today&&['todo','redo'].includes(taskStatus(t))
+    &&(!S.ui.cleanBranch||t.branch_id===S.ui.cleanBranch));
+  const byDate={};
+  tasks.forEach(t=>{ (byDate[t.clean_date]=byDate[t.clean_date]||[]).push(t); });
+  return `
+  <div class="card" style="margin-bottom:14px"><div class="hd" style="margin-bottom:0">
+    <input type="date" class="inp" id="schFrom" value="${S.ui.cleanFrom}" style="width:auto">
+    <span class="hint">~</span>
+    <input type="date" class="inp" id="schTo" value="${S.ui.cleanTo}" style="width:auto">
+    <select class="sel" id="schBranch" style="width:auto;min-width:140px">
+      <option value="">전체 지점</option>
+      ${activeBranches().map(b=>`<option value="${b.id}" ${S.ui.cleanBranch===b.id?'selected':''}>${esc(b.name)}</option>`).join('')}
+    </select>
+    <span class="sp"></span>
+    ${canEdit?`<button class="btn sm" id="btnManualClean">＋ 수동 청소 추가</button>`:''}
+  </div></div>
+  ${overdue.length?`<section><p class="sect-t" style="color:var(--point-deep)">⏰ 지난 미완료 <span class="cnt">${overdue.length}</span></p>
+    <div class="tasklist" style="margin-bottom:8px">${overdue.map(t=>taskCard(t,{assign:canEdit})).join('')}</div></section>`:''}
+  ${Object.keys(byDate).length?Object.keys(byDate).sort().map(d=>`
+    <section>
+      <p class="sect-t"><span class="daychip ${d===today?'today':''}">${mdLabel(d)}${d===today?' · 오늘':''}</span><span class="cnt">${byDate[d].length}건</span></p>
+      <div class="tasklist">${byDate[d].map(t=>taskCard(t,{assign:canEdit})).join('')}</div>
+    </section>`).join('')
+    :`<div class="empty">해당 기간에 청소 일정이 없습니다.<br>예약 등록 탭에서 예약을 넣으면 일정이 자동 생성됩니다.</div>`}`;
+}
+function bindSchedule(canEdit){
+  const rf=()=>{ S.ui.cleanFrom=$('#schFrom').value; S.ui.cleanTo=$('#schTo').value;
+    const need = S.ui.cleanFrom<S.range.from || S.ui.cleanTo>S.range.to;
+    (need?loadData(S.ui.cleanFrom<S.range.from?S.ui.cleanFrom:S.range.from, S.ui.cleanTo>S.range.to?S.ui.cleanTo:S.range.to):Promise.resolve()).then(render);
+  };
+  $('#schFrom').onchange=rf; $('#schTo').onchange=rf;
+  $('#schBranch').onchange=e=>{ S.ui.cleanBranch=e.target.value; render(); };
+  bindTaskCards();
+  const mb=$('#btnManualClean');
+  if(mb) mb.onclick=()=>{
+    modal('수동 청소 추가', `
+      <div class="field"><label>지점</label><select class="sel" id="mcB">${activeBranches().map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="row2">
+        <div class="field"><label>날짜</label><input type="date" class="inp" id="mcD" value="${todayStr()}"></div>
+        <div class="field"><label>시간 안내(선택)</label><input class="inp" id="mcW" placeholder="예) 15:00 이후"></div>
+      </div>
+      <div class="field"><label>담당(선택)</label><select class="sel" id="mcA"><option value="">미배정</option>${workerNames().map(n=>`<option>${esc(n)}</option>`).join('')}</select></div>
+      <p class="hint">예약과 무관한 정기 점검 청소나 특별 청소를 등록할 때 사용합니다.</p>`,
+      `<button class="btn" onclick="closeModal()">취소</button><button class="btn primary" id="mcGo">추가</button>`);
+    $('#mcGo').onclick=async ()=>{
+      const bid=$('#mcB').value, d=$('#mcD').value;
+      if(!d){ toast('날짜를 선택해 주세요'); return; }
+      try{
+        await upsertClean({task_key:`${bid}|${d}|m${Date.now().toString(36)}`, branch_id:bid, clean_date:d,
+          kind:'etc', manual:1, window_label:$('#mcW').value.trim(), assignee:$('#mcA').value});
+        closeModal(); toast('수동 청소를 추가했습니다'); render();
+      }catch(e){ toast(e.message); }
+    };
+  };
+}
+
+/* --- 확인·피드백 탭 --- */
+function cleanTabReview(){
+  const tasks=deriveTasks();
+  const meta=c=> tasks.find(t=>t.key===c.task_key)||{key:c.task_key,branch_id:c.branch_id,clean_date:c.clean_date,kind:c.kind||'etc',window_label:c.window_label||'',after_label:'',skipAllowed:false};
+  const pend=S.cleanings.filter(c=>c.status==='done').sort((a,b)=>String(b.submitted_at||'').localeCompare(String(a.submitted_at||'')));
+  const redo=S.cleanings.filter(c=>c.status==='redo');
+  const recent=S.cleanings.filter(c=>c.status==='confirmed').sort((a,b)=>String(b.review_at||'').localeCompare(String(a.review_at||''))).slice(0,8);
+  return `
+  <p class="hint b" style="margin-bottom:14px">근무자가 제출한 청소를 검토하고, 확인 완료 또는 보완 요청으로 처리합니다. 카드를 누르면 체크 결과가 열립니다.</p>
+  <section><p class="sect-t">확인 대기 <span class="cnt">${pend.length}</span></p>
+    ${pend.length?`<div class="tasklist">${pend.map(c=>`<div data-review="${c.id}">${taskCard(meta(c))}</div>`).join('')}</div>`:`<div class="empty">확인을 기다리는 청소가 없습니다.</div>`}
+  </section>
+  ${redo.length?`<section><p class="sect-t">보완 요청 중 <span class="cnt">${redo.length}</span></p>
+    <div class="tasklist">${redo.map(c=>`<div data-review="${c.id}">${taskCard(meta(c))}</div>`).join('')}</div></section>`:''}
+  ${recent.length?`<section><p class="sect-t">최근 확인 완료</p>
+    <div class="tasklist">${recent.map(c=>`<div data-review="${c.id}">${taskCard(meta(c))}</div>`).join('')}</div></section>`:''}`;
+}
+function bindReview(){
+  $$('[data-review]').forEach(w=>{
+    w.querySelectorAll('[data-task]').forEach(el=>{
+      const clone=el.cloneNode(true); el.replaceWith(clone);
+      clone.addEventListener('click',()=>openReview(w.dataset.review));
+    });
+  });
+}
+function openReview(id){
+  const c=S.cleanings.find(x=>x.id===id); if(!c) return;
+  const t=deriveTasks().find(x=>x.key===c.task_key);
+  const items=itemsFor(c.branch_id, (t&&t.kind)||c.kind||'etc');
+  const unchecked=items.filter(i=>!(c.checks&&c.checks[i.id]));
+  const checked=items.filter(i=>c.checks&&c.checks[i.id]);
+  modal(`${bName(c.branch_id)} · ${mdLabel(c.clean_date)}`, `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <span class="pill ${c.status}">${CLEAN_STATUS[c.status]||c.status}</span>
+      <span class="pill line">${KIND_LABEL[(t&&t.kind)||c.kind]||'청소'}</span>
+      <span class="pill gray">담당 ${esc(c.assignee||'미배정')}</span>
+      ${c.submitted_at?`<span class="pill gray">제출 ${c.submitted_at.slice(5,16).replace('T',' ')}</span>`:''}
+    </div>
+    ${unchecked.length?`<p class="sect-t" style="color:var(--point-deep)">미체크 항목 <span class="cnt">${unchecked.length}</span></p>
+      ${unchecked.map(i=>`<div class="hint red" style="margin-bottom:5px;border-radius:8px;padding:8px 11px">✕ ${i.special?'<span class="sptag">특별</span>':''}${esc(i.label)}</div>`).join('')}`
+      :`<p class="hint" style="color:var(--green);font-weight:700;margin:0 0 10px">✓ 모든 항목이 체크되었습니다 (${checked.length}개)</p>`}
+    ${unchecked.length?`<p class="sect-t" style="margin-top:12px">체크 완료 <span class="cnt">${checked.length}</span></p>`:''}
+    ${c.note?`<div class="field" style="margin-top:12px"><label>근무자 비고</label><div class="hint b">${esc(c.note)}</div></div>`:''}
+    ${['done','redo'].includes(c.status)?`
+    <div class="field" style="margin-top:14px"><label>피드백 ${c.status==='done'?'(보완 요청 시 필수)':''}</label>
+      <textarea class="ta" id="rvFb" placeholder="예) 화장실 배수구 냄새가 남아 있어요. 트랩 세척 부탁해요.">${esc(c.feedback||'')}</textarea></div>`
+    :(c.feedback?`<div class="field" style="margin-top:12px"><label>피드백</label><div class="hint b">${esc(c.feedback)}</div></div>`:'')}`,
+    ['done','redo'].includes(c.status)?`
+      <button class="btn" id="rvRedo" style="color:var(--amber)">보완 요청</button>
+      <button class="btn green" id="rvOk">확인 완료</button>`:'');
+  const fin=async (status)=>{
+    const fb=($('#rvFb')&&$('#rvFb').value.trim())||'';
+    if(status==='redo'&&!fb){ toast('보완 요청 사유를 적어 주세요'); return; }
+    try{
+      await patchClean(c.id,{status, feedback:fb, review_by:S.user.name, review_at:new Date().toISOString()});
+      closeModal(); toast(status==='confirmed'?'확인 완료 처리했습니다':'보완 요청을 보냈습니다'); render();
+    }catch(e){ toast(e.message); }
+  };
+  const ro=$('#rvOk'), rr=$('#rvRedo');
+  if(ro) ro.onclick=()=>fin('confirmed');
+  if(rr) rr.onclick=()=>fin('redo');
+}
+
+/* --- 예약 등록 탭 --- */
+function cleanTabRes(){
+  const ym=S.ui.resYM;
+  const [from,to]=monthRange(ym);
+  const days=daysInYM(ym);
+  const brs=activeBranches();
+  const map={};
+  S.reservations.filter(r=>r.res_date.slice(0,7)===ym && resActive(r)).forEach(r=>{
+    map[`${r.branch_id}|${r.res_date}|${r.slot}`]=r;
+  });
+  let rows='';
+  for(let d=1;d<=days;d++){
+    const ds=ym+'-'+pad2(d);
+    const wk=['토','일'].includes(dowKo(ds));
+    rows+=`<tr class="${wk?'wknd':''}"><td class="dt">${d}일(${dowKo(ds)})</td>`+
+      brs.map(b=>{
+        return '<td>'+['day','night','allday'].map(sl=>{
+          const r=map[`${b.id}|${ds}|${sl}`];
+          const cls=r?(r.source==='excel'?'xls':'on'):'';
+          return `<button class="slotbtn ${sl==='allday'?'all ':''}${cls}" data-slot="${b.id}|${ds}|${sl}" ${r?`data-rid="${r.id}" data-src="${r.source}"`:''} title="${SLOT_LABEL[sl]}">${SLOT_SHORT[sl]}</button>`;
+        }).join('')+'</td>';
+      }).join('')+'</tr>';
+  }
+  return `
+  <div class="card" style="margin-bottom:14px"><div class="hd" style="margin-bottom:8px">
+    <button class="btn sm" id="rgPrev">〈</button>
+    <b style="font-size:15px">${ymLabel(ym)}</b>
+    <button class="btn sm" id="rgNext">〉</button>
+    <span class="sp"></span>
+    <button class="btn sm" id="rgAdd">＋ 상세 예약 추가</button>
+  </div>
+  <p class="hint" style="margin:0">칸을 누르면 <b>낮·밤·올데이</b> 예약을 바로 넣고 뺄 수 있습니다(검정 = 직접 등록).
+  <span style="color:var(--point-deep);font-weight:700">빨간색은 엑셀 업로드분</span>으로, 수정은 매출·손익 탭에서 해당 월을 다시 업로드하면 됩니다. 예약이 생기면 청소 일정이 자동으로 만들어집니다.</p></div>
+  <div class="resgrid"><table>
+    <thead><tr><th style="text-align:left;padding-left:10px">날짜</th>${brs.map(b=>`<th>${esc(b.name.replace('신촌 ','').replace('건대 ','건대 '))}</th>`).join('')}</tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
+}
+function bindResGrid(){
+  $('#rgPrev').onclick=async ()=>{ S.ui.resYM=shiftYM(S.ui.resYM,-1); await ensureMonth(S.ui.resYM); render(); };
+  $('#rgNext').onclick=async ()=>{ S.ui.resYM=shiftYM(S.ui.resYM,1); await ensureMonth(S.ui.resYM); render(); };
+  $$('[data-slot]').forEach(bt=>{
+    bt.onclick=async ()=>{
+      const [bid,ds,sl]=bt.dataset.slot.split('|');
+      if(bt.dataset.rid){
+        if(bt.dataset.src==='excel'){ toast('엑셀 업로드분은 여기서 수정할 수 없습니다'); return; }
+        if(!await confirm2(`${bName(bid)} · ${mdLabel(ds)} ${SLOT_LABEL[sl]} 예약을 삭제할까요?<br><span class="hint">연결된 청소 일정도 함께 사라집니다.</span>`)) return;
+        try{ await api('/reservations/'+bt.dataset.rid,'DELETE'); S.reservations=S.reservations.filter(r=>r.id!==bt.dataset.rid); toast('삭제했습니다'); render(); }
+        catch(e){ toast(e.message); }
+      }else{
+        const st=S.settings.times[sl]||['',''];
+        try{
+          const r=await api('/reservations','POST',{branch_id:bid,res_date:ds,slot:sl,status:'확정',start_t:st[0],end_t:st[1],customer:'',phone:'',amount:0});
+          S.reservations.push(r.reservation); render();
+        }catch(e){ toast(e.message); }
+      }
+    };
+  });
+  $('#rgAdd').onclick=()=>{
+    modal('상세 예약 추가', `
+      <div class="row2">
+        <div class="field"><label>지점</label><select class="sel" id="raB">${activeBranches().map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+        <div class="field"><label>이용일</label><input type="date" class="inp" id="raD" value="${todayStr()}"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>구분</label><select class="sel" id="raS">${Object.entries(SLOT_LABEL).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></div>
+        <div class="field"><label>결제금액(원)</label><input type="number" class="inp" id="raAmt" placeholder="0"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>예약자(선택)</label><input class="inp" id="raNm"></div>
+        <div class="field"><label>연락처(선택)</label><input class="inp" id="raPh"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>시작</label><input type="time" class="inp" id="raST"></div>
+        <div class="field"><label>종료</label><input type="time" class="inp" id="raET"></div>
+      </div>
+      <div class="field"><label>메모(선택)</label><input class="inp" id="raMemo" placeholder="예) 네이버 예약 N1234"></div>`,
+      `<button class="btn" onclick="closeModal()">취소</button><button class="btn primary" id="raGo">추가</button>`);
+    const syncT=()=>{ const st=S.settings.times[$('#raS').value]||['','']; $('#raST').value=st[0]; $('#raET').value=st[1]; };
+    $('#raS').onchange=syncT; syncT();
+    $('#raGo').onclick=async ()=>{
+      const ds=$('#raD').value; if(!ds){ toast('이용일을 선택해 주세요'); return; }
+      try{
+        const r=await api('/reservations','POST',{branch_id:$('#raB').value,res_date:ds,slot:$('#raS').value,status:'확정',
+          customer:$('#raNm').value.trim(),phone:$('#raPh').value.trim(),amount:+$('#raAmt').value||0,
+          start_t:$('#raST').value,end_t:$('#raET').value,memo:$('#raMemo').value.trim()});
+        S.reservations.push(r.reservation); closeModal(); toast('예약을 추가했습니다'); render();
+      }catch(e){ toast(e.message); }
+    };
+  };
+}
+async function ensureMonth(ym){
+  const [f,t]=monthRange(ym);
+  const nf=f<S.range.from?f:S.range.from, nt=t>S.range.to?t:S.range.to;
+  if(nf!==S.range.from||nt!==S.range.to) await loadData(nf,nt);
+}
+
+/* --- 체크리스트 설정 탭 --- */
+function cleanTabItems(){
+  const common=S.check_items.filter(i=>i.scope==='common'&&i.active!==0).sort((a,b)=>(a.sort||0)-(b.sort||0));
+  const cats=[...new Set(common.map(i=>i.category))];
+  const bid=S.ui.itemBranch||activeBranches()[0].id; S.ui.itemBranch=bid;
+  const sp=S.check_items.filter(i=>i.scope==='branch'&&i.branch_id===bid&&i.active!==0).sort((a,b)=>(a.sort||0)-(b.sort||0));
+  const row=i=>`<div class="chk" style="cursor:default">
+    <span style="flex:1;font-size:14px">${i.scope==='branch'?'<span class="sptag">특별</span>':''}${esc(i.label)}</span>
+    <button class="btn xs ghost" data-iedit="${i.id}">수정</button>
+    <button class="btn xs ghost" data-idel="${i.id}" style="color:var(--point-deep)">삭제</button></div>`;
+  return `
+  <div class="row2" style="align-items:start">
+    <div class="card">
+      <div class="hd"><h3>공통 체크리스트</h3><span class="sp"></span><span class="hint">${common.length}개 · 모든 지점 적용</span></div>
+      ${cats.map(c=>`<div class="chkgrp"><p class="gt">${esc(c)}</p>${common.filter(i=>i.category===c).map(row).join('')}</div>`).join('')}
+      <div class="row2" style="margin-top:10px">
+        <input class="inp" id="niCat" list="catList" placeholder="분류 (예: 실내 청소)">
+        <datalist id="catList">${cats.map(c=>`<option value="${esc(c)}">`).join('')}</datalist>
+        <input class="inp" id="niLbl" placeholder="항목 내용">
+      </div>
+      <button class="btn sm full" id="niAdd" style="margin-top:8px">＋ 공통 항목 추가</button>
+    </div>
+    <div class="card">
+      <div class="hd"><h3>지점 특별 항목</h3><span class="sp"></span>
+        <select class="sel" id="ibSel" style="width:auto">${activeBranches().map(b=>`<option value="${b.id}" ${b.id===bid?'selected':''}>${esc(b.name)}</option>`).join('')}</select></div>
+      <p class="hint" style="margin:0 0 10px">이 지점 체크리스트 맨 아래에 <span class="sptag">특별</span> 표시로 추가됩니다. (예: 게임기 점검, 포토존 배경지 확인)</p>
+      ${sp.length?sp.map(row).join(''):`<div class="empty" style="padding:22px">아직 특별 항목이 없습니다.</div>`}
+      <input class="inp" id="nbLbl" placeholder="항목 내용" style="margin-top:10px">
+      <button class="btn sm full" id="nbAdd" style="margin-top:8px">＋ 이 지점에 추가</button>
+    </div>
+  </div>`;
+}
+function bindItems(){
+  $('#ibSel').onchange=e=>{ S.ui.itemBranch=e.target.value; render(); };
+  const add=async (payload)=>{ try{ const r=await api('/check_items','POST',payload); S.check_items.push(r.item); render(); }catch(e){ toast(e.message); } };
+  $('#niAdd').onclick=()=>{
+    const cat=$('#niCat').value.trim()||'기타', lbl=$('#niLbl').value.trim();
+    if(!lbl){ toast('항목 내용을 입력해 주세요'); return; }
+    add({scope:'common',branch_id:null,category:cat,label:lbl,sort:S.check_items.length+1,active:1});
+  };
+  $('#nbAdd').onclick=()=>{
+    const lbl=$('#nbLbl').value.trim();
+    if(!lbl){ toast('항목 내용을 입력해 주세요'); return; }
+    add({scope:'branch',branch_id:S.ui.itemBranch,category:'지점 특별관리',label:lbl,sort:S.check_items.length+1,active:1});
+  };
+  $$('[data-iedit]').forEach(b=>b.onclick=async ()=>{
+    const it=S.check_items.find(x=>x.id===b.dataset.iedit);
+    const nv=prompt('항목 내용 수정', it.label);
+    if(nv&&nv.trim()&&nv.trim()!==it.label){
+      try{ const r=await api('/check_items/'+it.id,'PATCH',{label:nv.trim()}); Object.assign(it,r.item); render(); }
+      catch(e){ toast(e.message); }
+    }
+  });
+  $$('[data-idel]').forEach(b=>b.onclick=async ()=>{
+    const it=S.check_items.find(x=>x.id===b.dataset.idel);
+    if(!await confirm2(`"${esc(it.label)}" 항목을 삭제할까요?`)) return;
+    try{ await api('/check_items/'+it.id,'DELETE'); S.check_items=S.check_items.filter(x=>x.id!==it.id); render(); }
+    catch(e){ toast(e.message); }
+  });
+}
+
+/* ==================================================
+   청소 수행 화면 (#/task/키)
+   ================================================== */
+function vTask(key){
+  const t=deriveTasks().find(x=>x.key===key);
+  const c=cleanRec(key);
+  if(!t&&!c){ layout('task', `<div class="empty">작업을 찾을 수 없습니다. 예약이 삭제되었을 수 있어요.</div><button class="btn" onclick="history.back()" style="margin-top:12px">돌아가기</button>`); return; }
+  const info=t||{key, branch_id:c.branch_id, clean_date:c.clean_date, kind:c.kind||'etc', window_label:c.window_label||'', after_label:'수동 등록', skipAllowed:false};
+  const items=itemsFor(info.branch_id, info.kind);
+  const checks=Object.assign({}, c&&c.checks||{});
+  const stt=c?c.status:'todo';
+  const locked=stt==='confirmed'||stt==='skip';
+  const cats=[...new Set(items.map(i=>i.category))];
+  const prog=()=>{ const n=items.filter(i=>checks[i.id]).length; return {n, p:items.length?Math.round(n/items.length*100):0}; };
+  const p0=prog();
+  layout('task', `
+    <button class="btn ghost sm" id="tkBack" style="margin-bottom:12px">← 목록으로</button>
+    <div class="card" style="margin-bottom:14px">
+      <div class="l1" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <b style="font-size:17px">${esc(bName(info.branch_id))}</b>
+        <span class="pill ${info.kind==='mid'?'amber':'line'}">${KIND_LABEL[info.kind]}</span>
+        <span class="pill ${stt}">${CLEAN_STATUS[stt]}</span>
+      </div>
+      <div class="hint" style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap">
+        <span>📅 ${mdLabel(info.clean_date)}</span><span>🕐 ${esc(info.window_label)}</span><span>${esc(info.after_label)}</span>
+        <span>👤 ${esc((c&&c.assignee)||'미배정')}</span>
+      </div>
+      <div class="progress" style="margin-top:12px"><i id="tkBar" style="width:${p0.p}%"></i></div>
+      <div class="hint"><b id="tkCnt" class="num">${p0.n}</b> / ${items.length} 항목 체크</div>
+    </div>
+    ${stt==='redo'&&c.feedback?`<div class="fb"><b>관리자 보완 요청</b>${esc(c.feedback)}</div>`:''}
+    ${stt==='confirmed'?`<div class="fb okfb"><b>확인 완료된 청소입니다</b>${c.feedback?esc(c.feedback):'수고하셨습니다!'}</div>`:''}
+    ${info.skipAllowed&&!locked?`<div class="hint b" style="margin-bottom:12px">같은 고객이 낮·밤을 이어서 이용합니다. 중간 정리는 상황에 따라 <b>생략</b>할 수 있어요.
+      <button class="btn xs" id="tkSkip" style="margin-left:6px">생략 처리</button></div>`:''}
+    ${cats.map(cat=>{
+      const gi=items.filter(i=>i.category===cat);
+      return `<div class="chkgrp"><p class="gt">${esc(cat)} · ${gi.length}</p>
+        ${gi.map(i=>`<label class="chk ${checks[i.id]?'on':''} ${i.special?'special':''}" data-chk="${i.id}">
+          <input type="checkbox" ${checks[i.id]?'checked':''} ${locked?'disabled':''}>
+          <span class="box">${checks[i.id]?'✓':''}</span>
+          <span class="tx">${i.special?'<span class="sptag">특별</span>':''}${esc(i.label)}</span>
+        </label>`).join('')}</div>`;
+    }).join('')}
+    <div class="card" style="margin-top:6px">
+      <div class="field" style="margin-bottom:0"><label>비고 · 특이사항</label>
+        <textarea class="ta" id="tkNote" ${locked?'disabled':''} placeholder="예) 소파 아래에서 분실물(카드) 발견, 카운터에 보관했습니다.">${esc((c&&c.note)||'')}</textarea></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+      <button class="btn" id="tkIssue">🔧 시설 이슈 신고</button>
+      <span style="flex:1"></span>
+      ${!locked?`<button class="btn" id="tkSave">임시 저장</button>
+      <button class="btn primary" id="tkSubmit" style="padding:10px 22px">${stt==='redo'?'보완 완료 · 다시 제출':'청소 완료 제출'}</button>`:''}
+    </div>
+  `, mdLabel(info.clean_date));
+  $('#tkBack').onclick=()=>{ location.hash='#/clean'; };
+  let dirty=false, timer=null;
+  const basePayload=()=>({task_key:key, branch_id:info.branch_id, clean_date:info.clean_date, kind:info.kind,
+    window_label:info.window_label, checks, note:$('#tkNote').value.trim()});
+  const autosave=()=>{ if(locked) return; dirty=true; clearTimeout(timer);
+    timer=setTimeout(async ()=>{ try{ await upsertClean(Object.assign(basePayload(),{assignee:(c&&c.assignee)||((S.user.role==='worker')?S.user.name:'')})); dirty=false; }catch(e){} }, 900); };
+  $$('[data-chk]').forEach(el=>{
+    el.addEventListener('click',e=>{
+      if(locked) return; e.preventDefault();
+      const id=el.dataset.chk;
+      checks[id]=!checks[id];
+      el.classList.toggle('on',!!checks[id]);
+      el.querySelector('.box').textContent=checks[id]?'✓':'';
+      const p=prog(); $('#tkBar').style.width=p.p+'%'; $('#tkCnt').textContent=p.n;
+      autosave();
+    });
+  });
+  $('#tkNote').addEventListener('input',autosave);
+  const sk=$('#tkSkip');
+  if(sk) sk.onclick=async ()=>{
+    if(!await confirm2('이번 중간 정리를 <b>생략</b> 처리할까요?<br><span class="hint">동일 고객 연속 이용으로 기록됩니다.</span>')) return;
+    try{ await upsertClean(Object.assign(basePayload(),{status:'skip', note:($('#tkNote').value.trim()||'동일 고객 연속 이용으로 생략')})); toast('생략 처리했습니다'); location.hash='#/clean'; }
+    catch(e){ toast(e.message); }
+  };
+  const sv=$('#tkSave');
+  if(sv) sv.onclick=async ()=>{ clearTimeout(timer);
+    try{ await upsertClean(Object.assign(basePayload(),{assignee:(c&&c.assignee)||((S.user.role==='worker')?S.user.name:'')})); toast('저장했습니다'); }
+    catch(e){ toast(e.message); } };
+  const sb=$('#tkSubmit');
+  if(sb) sb.onclick=async ()=>{
+    clearTimeout(timer);
+    const miss=items.filter(i=>!checks[i.id]);
+    if(miss.length && !await confirm2(`아직 <b>${miss.length}개</b> 항목이 체크되지 않았습니다.<br><span class="hint">그대로 제출하면 관리자에게 미체크 항목이 표시됩니다.</span><br>제출할까요?`)) return;
+    try{
+      await upsertClean(Object.assign(basePayload(),{status:'done',
+        assignee:(c&&c.assignee)||S.user.name, submitted_by:S.user.name, submitted_at:new Date().toISOString()}));
+      toast('제출했습니다. 관리자 확인 후 완료 처리됩니다.');
+      location.hash='#/clean';
+    }catch(e){ toast(e.message); }
+  };
+  $('#tkIssue').onclick=()=>openIssueNew(info.branch_id);
+}
+
+/* ==================================================
+   시설관리
+   ================================================== */
+function issueCard(i){
+  return `<div class="issue" data-issue="${i.id}">
+    <div class="l1">
+      <span class="pill ${ISSUE_STATUS_PILL[i.status]||'gray'}">${esc(i.status)}</span>
+      ${i.priority==='긴급'?`<span class="pill red">긴급</span>`:''}
+      <span class="tt">${esc(i.title)}</span>
+    </div>
+    <div class="l2">
+      <span>${esc(bName(i.branch_id))}</span><span>${esc(i.category)}${i.equip?` · ${esc(i.equip)}`:''}</span>
+      <span>신고 ${esc(i.reporter||'-')}</span>
+      ${i.assignee?`<span>담당 ${esc(i.assignee)}</span>`:''}
+      <span>${String(i.created_at||'').slice(5,10).replace('-','/')}</span>
+      ${(i.comments||[]).length?`<span>💬 ${(i.comments||[]).length}</span>`:''}
+    </div>
+  </div>`;
+}
+function bindIssueCards(){
+  $$('[data-issue]').forEach(el=> el.onclick=()=>openIssueDetail(el.dataset.issue));
+}
+function vFac(){
+  const canManage=isMgr()||S.user.role==='facility';
+  const isWorker=S.user.role==='worker';
+  const f=S.ui.facFilter;
+  let list=S.issues.slice().sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||'')));
+  if(f==='open') list=list.filter(i=>!['완료','보류'].includes(i.status));
+  else if(f!=='all') list=list.filter(i=>i.status===f);
+  if(isWorker) list=list.filter(i=>myBranches().some(b=>b.id===i.branch_id));
+  const cnt=s=>S.issues.filter(i=>s==='open'?!['완료','보류'].includes(i.status):i.status===s).length;
+  layout('fac', `
+    ${isWorker?`<p class="hint b" style="margin-bottom:14px">청소 중 발견한 고장·오염·구매 필요 사항을 신고하면 시설관리자와 총괄관리자가 확인 후 처리합니다.</p>`:''}
+    <div class="card" style="margin-bottom:14px"><div class="hd" style="margin-bottom:0">
+      <div class="tabs">
+        ${[['open','진행 중'],['완료','완료'],['보류','보류'],['all','전체']].map(([k,l])=>
+          `<button class="${f===k?'on':''}" data-ff="${k}">${l}${k==='open'?` (${cnt('open')})`:''}</button>`).join('')}
+      </div>
+      <span class="sp"></span>
+      <button class="btn primary sm" id="btnIssueNew">＋ 이슈 신고</button>
+    </div></div>
+    ${canManage?`<div class="hint b" style="margin-bottom:14px">정기 점검 기준 — <b>일일</b> 도어락·와이파이·조명 / <b>주간</b> 전자기기·음향·주방기기 작동 / <b>월간</b> 에어컨 필터·배수·방역 / <b>분기</b> 소방·전기 안전. 점검 중 발견한 사항은 이슈로 등록해 주세요.</div>`:''}
+    ${list.length?list.map(issueCard).join(''):`<div class="empty">해당 상태의 이슈가 없습니다.</div>`}
+  `);
+  $$('[data-ff]').forEach(b=>b.onclick=()=>{ S.ui.facFilter=b.dataset.ff; render(); });
+  $('#btnIssueNew').onclick=()=>openIssueNew();
+  bindIssueCards();
+}
+function openIssueNew(presetBranch){
+  modal('시설 이슈 신고', `
+    <div class="row2">
+      <div class="field"><label>지점</label><select class="sel" id="fnB">${myBranches().map(b=>`<option value="${b.id}" ${b.id===presetBranch?'selected':''}>${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="field"><label>분류</label><select class="sel" id="fnC">${ISSUE_CATS.map(c=>`<option>${c}</option>`).join('')}</select></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>장비·위치</label><select class="sel" id="fnE">${ISSUE_EQUIP.map(c=>`<option>${c}</option>`).join('')}</select></div>
+      <div class="field"><label>긴급도</label><select class="sel" id="fnP">${PRIORITY.map(c=>`<option>${c}</option>`).join('')}</select></div>
+    </div>
+    <div class="field"><label>제목</label><input class="inp" id="fnT" placeholder="예) 2호점 마이크 1개 소리 안 남"></div>
+    <div class="field"><label>내용</label><textarea class="ta" id="fnD" placeholder="상태, 발견 시점, 필요한 조치 등을 적어 주세요."></textarea></div>`,
+    `<button class="btn" onclick="closeModal()">취소</button><button class="btn primary" id="fnGo">신고 등록</button>`);
+  $('#fnGo').onclick=async ()=>{
+    const title=$('#fnT').value.trim();
+    if(!title){ toast('제목을 입력해 주세요'); return; }
+    try{
+      const r=await api('/issues','POST',{branch_id:$('#fnB').value, category:$('#fnC').value, equip:$('#fnE').value,
+        priority:$('#fnP').value, title, detail:$('#fnD').value.trim(), reporter:S.user.name, status:'접수'});
+      S.issues.unshift(r.issue); closeModal(); toast('이슈를 등록했습니다'); render();
+    }catch(e){ toast(e.message); }
+  };
+}
+function openIssueDetail(id){
+  const i=S.issues.find(x=>x.id===id); if(!i) return;
+  const canManage=isMgr()||S.user.role==='facility';
+  modal(esc(i.title), `
+    <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px">
+      <span class="pill ${ISSUE_STATUS_PILL[i.status]||'gray'}">${esc(i.status)}</span>
+      ${i.priority==='긴급'?`<span class="pill red">긴급</span>`:''}
+      <span class="pill line">${esc(bName(i.branch_id))}</span>
+      <span class="pill gray">${esc(i.category)}${i.equip?` · ${esc(i.equip)}`:''}</span>
+    </div>
+    ${i.detail?`<div class="hint b" style="margin-bottom:12px;white-space:pre-wrap">${esc(i.detail)}</div>`:''}
+    <div class="hint" style="margin-bottom:14px">신고 ${esc(i.reporter||'-')} · ${String(i.created_at||'').slice(0,16).replace('T',' ')}
+      ${i.resolved_at?` · 완료 ${String(i.resolved_at).slice(0,10)}`:''}</div>
+    ${canManage?`
+    <div class="row3">
+      <div class="field"><label>상태</label><select class="sel" id="fdSt">${ISSUE_STATUS.map(s=>`<option ${s===i.status?'selected':''}>${s}</option>`).join('')}</select></div>
+      <div class="field"><label>담당자</label><select class="sel" id="fdAs"><option value="">미지정</option>${workerNames().map(n=>`<option ${n===i.assignee?'selected':''}>${esc(n)}</option>`).join('')}</select></div>
+      <div class="field"><label>처리 비용(원)</label><input type="number" class="inp" id="fdCost" value="${i.cost||''}" placeholder="0"></div>
+    </div>`:''}
+    <p class="sect-t" style="margin-top:6px">처리 기록 <span class="cnt">${(i.comments||[]).length}</span></p>
+    <div id="fdCmts">${(i.comments||[]).map(c=>`<div class="cmt">${esc(c.text)}<div class="m">${esc(c.by)} · ${String(c.at||'').slice(5,16).replace('T',' ')}</div></div>`).join('')||'<p class="hint">아직 기록이 없습니다.</p>'}</div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <input class="inp" id="fdNew" placeholder="처리 내용·메모를 남겨 주세요" style="flex:1">
+      <button class="btn" id="fdAdd">등록</button>
+    </div>`,
+    canManage?`<button class="btn primary" id="fdSave">변경사항 저장</button>`:'');
+  $('#fdAdd').onclick=async ()=>{
+    const text=$('#fdNew').value.trim(); if(!text) return;
+    try{
+      const r=await api(`/issues/${i.id}/comments`,'POST',{text, by:S.user.name});
+      Object.assign(i, r.issue); openIssueDetail(id);
+    }catch(e){ toast(e.message); }
+  };
+  const sv=$('#fdSave');
+  if(sv) sv.onclick=async ()=>{
+    const status=$('#fdSt').value;
+    const patch={status, assignee:$('#fdAs').value, cost:+$('#fdCost').value||0};
+    if(status==='완료'&&!i.resolved_at) patch.resolved_at=new Date().toISOString();
+    try{
+      const r=await api('/issues/'+i.id,'PATCH',patch);
+      Object.assign(i, r.issue); closeModal(); toast('저장했습니다'); render();
+    }catch(e){ toast(e.message); }
+  };
+}
+
+/* ==================================================
+   홍보·노출관리
+   ================================================== */
+function chStale(ch){
+  if(ch.status!=='운영중'||!ch.last_check) return false;
+  return (new Date(todayStr())-new Date(ch.last_check))/86400000 > 30;
+}
+function vMkt(){
+  const brs=activeBranches();
+  const bid=S.ui.mktBranch||brs[0].id; S.ui.mktBranch=bid;
+  const chs=S.channels.filter(c=>c.branch_id===bid).sort((a,b)=>(a.sort||0)-(b.sort||0));
+  const dotCls=s=>({'운영중':'g','점검필요':'a','중단':'r'}[s]||'x');
+  layout('mkt', `
+    <div class="card" style="margin-bottom:14px">
+      <div class="hd"><h3>지점별 채널 현황</h3><span class="sp"></span>
+        <span class="hint"><span class="dot g" style="display:inline-block;vertical-align:-2px"></span> 운영중
+        <span class="dot a" style="display:inline-block;vertical-align:-2px;margin-left:8px"></span> 점검필요
+        <span class="dot r" style="display:inline-block;vertical-align:-2px;margin-left:8px"></span> 중단
+        <span class="dot x" style="display:inline-block;vertical-align:-2px;margin-left:8px"></span> 등록필요</span></div>
+      <div class="tblwrap"><table class="tbl">
+        <thead><tr><th>지점</th><th>채널 상태</th><th class="c">운영중</th></tr></thead>
+        <tbody>${brs.map(b=>{
+          const bc=S.channels.filter(c=>c.branch_id===b.id).sort((x,y)=>(x.sort||0)-(y.sort||0));
+          const on=bc.filter(c=>c.status==='운영중').length;
+          return `<tr data-mb="${b.id}" style="cursor:pointer;${b.id===bid?'background:var(--point-soft)':''}">
+            <td style="font-weight:700">${esc(b.name)}</td>
+            <td><div class="dotrow">${bc.map(c=>`<span class="dot ${chStale(c)?'a':dotCls(c.status)}" title="${esc(c.channel)} · ${esc(c.status)}"></span>`).join('')}</div></td>
+            <td class="c num">${on}/${bc.length}</td></tr>`;
+        }).join('')}</tbody>
+      </table></div>
+      <p class="hint" style="margin:8px 0 0">지점을 누르면 아래에서 채널별 상태를 관리할 수 있습니다. 운영중 채널도 마지막 점검이 30일을 넘으면 점검필요로 표시됩니다.</p>
+    </div>
+    <section>
+      <p class="sect-t">${esc(bName(bid))} 채널 관리 <span class="cnt">${chs.length}</span>
+        <span class="sp" style="flex:1"></span>
+        <button class="btn xs" id="mkEnsure">기본 채널 채우기</button>
+        <button class="btn xs" id="mkAdd">＋ 채널 추가</button></p>
+      ${chs.map(c=>`<div class="chcard">
+        <div class="l1">
+          <span class="nm">${esc(c.channel)}</span>
+          <span class="pill ${chStale(c)?'amber':CH_STATUS_PILL[c.status]||'gray'}">${chStale(c)?'점검 필요(30일↑)':esc(c.status)}</span>
+          <span class="sp" style="flex:1"></span>
+          ${c.url?`<a href="${esc(c.url)}" target="_blank" rel="noopener" class="btn xs">바로가기 ↗</a>`:''}
+          <button class="btn xs ghost" data-mce="${c.id}">관리</button>
+        </div>
+        <div class="l2">
+          <span>담당 ${esc(c.owner||'-')}</span>
+          <span>마지막 점검 ${c.last_check?esc(c.last_check):'기록 없음'}</span>
+          ${c.memo?`<span>📝 ${esc(c.memo)}</span>`:''}
+          <span class="sp" style="flex:1"></span>
+          <button class="btn xs green" data-mck="${c.id}">오늘 점검 완료</button>
+        </div>
+      </div>`).join('')||`<div class="empty">채널이 없습니다. "기본 채널 채우기"를 눌러 시작해 보세요.</div>`}
+    </section>`);
+  $$('[data-mb]').forEach(tr=>tr.onclick=()=>{ S.ui.mktBranch=tr.dataset.mb; render(); });
+  $$('[data-mck]').forEach(b=>b.onclick=async ()=>{
+    const c=S.channels.find(x=>x.id===b.dataset.mck);
+    try{ const r=await api('/channels/'+c.id,'PATCH',{last_check:todayStr(), status:c.status==='등록필요'?'운영중':c.status});
+      Object.assign(c,r.channel); toast('점검 완료로 기록했습니다'); render(); }catch(e){ toast(e.message); }
+  });
+  $$('[data-mce]').forEach(b=>b.onclick=()=>openChannelEdit(b.dataset.mce));
+  $('#mkAdd').onclick=()=>openChannelEdit(null);
+  $('#mkEnsure').onclick=async ()=>{
+    try{ const r=await api('/channels/ensure','POST',{branch_id:S.ui.mktBranch}); S.channels=r.channels; toast('기본 채널을 채웠습니다'); render(); }
+    catch(e){ toast(e.message); }
+  };
+}
+function openChannelEdit(id){
+  const c=id?S.channels.find(x=>x.id===id):null;
+  modal(c?'채널 관리':'채널 추가', `
+    <div class="field"><label>채널명</label><input class="inp" id="chNm" list="chList" value="${c?esc(c.channel):''}" placeholder="예) 인스타그램">
+      <datalist id="chList">${CHANNEL_PRESETS.map(p=>`<option value="${p}">`).join('')}</datalist></div>
+    <div class="row2">
+      <div class="field"><label>상태</label><select class="sel" id="chSt">${CH_STATUS.map(s=>`<option ${c&&c.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
+      <div class="field"><label>담당자</label><input class="inp" id="chOw" value="${c?esc(c.owner||''):''}"></div>
+    </div>
+    <div class="field"><label>링크(URL)</label><input class="inp" id="chUrl" value="${c?esc(c.url||''):''}" placeholder="https://"></div>
+    <div class="field"><label>메모</label><input class="inp" id="chMemo" value="${c?esc(c.memo||''):''}" placeholder="예) 주 2회 릴스 업로드, 리뷰 이벤트 진행 중"></div>`,
+    `${c?`<button class="btn" id="chDel" style="color:var(--point-deep)">삭제</button>`:''}
+     <button class="btn primary" id="chGo">${c?'저장':'추가'}</button>`);
+  $('#chGo').onclick=async ()=>{
+    const channel=$('#chNm').value.trim();
+    if(!channel){ toast('채널명을 입력해 주세요'); return; }
+    const payload={channel, status:$('#chSt').value, owner:$('#chOw').value.trim(), url:$('#chUrl').value.trim(), memo:$('#chMemo').value.trim()};
+    try{
+      if(c){ const r=await api('/channels/'+c.id,'PATCH',payload); Object.assign(c,r.channel); }
+      else{ const r=await api('/channels','POST',Object.assign({branch_id:S.ui.mktBranch, sort:S.channels.length+1},payload)); S.channels.push(r.channel); }
+      closeModal(); toast('저장했습니다'); render();
+    }catch(e){ toast(e.message); }
+  };
+  const del=$('#chDel');
+  if(del) del.onclick=async ()=>{
+    if(!await confirm2(`"${esc(c.channel)}" 채널을 삭제할까요?`)) return;
+    try{ await api('/channels/'+c.id,'DELETE'); S.channels=S.channels.filter(x=>x.id!==c.id); closeModal(); render(); }
+    catch(e){ toast(e.message); }
+  };
+}
+
+/* ==================================================
+   매출 · 손익 (KPI / 비용 / 엑셀 업로드)
+   ================================================== */
+function vKpi(){
+  const ym=S.ui.kpiYM;
+  const tabs=['KPI 분석','비용·손익','예약 엑셀 업로드'];
+  const tb=S.ui.kpiTab;
+  let body='';
+  if(tb===0) body=kpiTabStats(ym);
+  else if(tb===1) body=kpiTabCost(ym);
+  else body=kpiTabUpload();
+  layout('kpi', `
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px">
+      <button class="btn sm" id="kpPrev">〈</button>
+      <b style="font-size:16px">${ymLabel(ym)}</b>
+      <button class="btn sm" id="kpNext">〉</button>
+      <span class="sp" style="flex:1"></span>
+      <div class="tabs">${tabs.map((t,i)=>`<button class="${tb===i?'on':''}" data-ktab="${i}">${t}</button>`).join('')}</div>
+    </div>
+    ${body}`);
+  $('#kpPrev').onclick=async ()=>{ S.ui.kpiYM=shiftYM(ym,-1); await ensureMonth(S.ui.kpiYM); render(); };
+  $('#kpNext').onclick=async ()=>{ S.ui.kpiYM=shiftYM(ym,1); await ensureMonth(S.ui.kpiYM); render(); };
+  $$('[data-ktab]').forEach(b=>b.onclick=()=>{ S.ui.kpiTab=+b.dataset.ktab; render(); });
+  if(tb===1) bindCost(ym);
+  if(tb===2) bindUpload();
+}
+function monthRes(ym){ return S.reservations.filter(r=>resActive(r)&&r.res_date.slice(0,7)===ym); }
+function branchCap(ym){ return daysInYM(ym)*2; }  /* 낮·밤 2슬롯/일, 올데이는 1건으로 집계 */
+
+function kpiTabStats(ym){
+  const rs=monthRes(ym);
+  const brs=activeBranches();
+  const rev=rs.reduce((s,r)=>s+(+r.amount||0),0);
+  const cap=brs.length*branchCap(ym);
+  const rate=cap?rs.length/cap:0;
+  const avg=rs.length?rev/rs.length:0;
+  const byB=brs.map(b=>{
+    const a=rs.filter(r=>r.branch_id===b.id);
+    const v=a.reduce((s,r)=>s+(+r.amount||0),0);
+    return {b, cnt:a.length, rev:v, rate:branchCap(ym)?a.length/branchCap(ym):0, avg:a.length?v/a.length:0};
+  }).sort((x,y)=>y.rev-x.rev);
+  const maxRev=Math.max(1,...byB.map(x=>x.rev));
+  const dows=['월','화','수','목','금','토','일'];
+  const byDow=dows.map(d=>({d, cnt:rs.filter(r=>dowKo(r.res_date)===d).length}));
+  const maxDow=Math.max(1,...byDow.map(x=>x.cnt));
+  const src={naver:0,self:0,etc:0}, srcRev={naver:0,self:0,etc:0};
+  rs.forEach(r=>{
+    const k=String(r.resno||'').startsWith('N')?'naver':String(r.resno||'').startsWith('BF')?'self':'etc';
+    src[k]++; srcRev[k]+=(+r.amount||0);
+  });
+  const slots={day:0,night:0,allday:0,etc:0};
+  rs.forEach(r=>{ slots[r.slot]=(slots[r.slot]||0)+1; });
+  if(!rs.length) return `<div class="empty">${ymLabel(ym)} 예약 데이터가 없습니다.<br>오른쪽 <b>예약 엑셀 업로드</b> 탭에서 호스트 페이지 엑셀을 올리거나, 청소관리 → 예약 등록에서 직접 입력해 주세요.</div>`;
+  return `
+  <section><div class="kpis">
+    <div class="kpi"><div class="k">총 매출</div><div class="v num">${fmt(rev)}<span style="font-size:13px">원</span></div><div class="s">취소 제외</div></div>
+    <div class="kpi"><div class="k">예약 건수</div><div class="v num">${rs.length}건</div><div class="s">올데이 1건 기준</div></div>
+    <div class="kpi"><div class="k">전체 예약률</div><div class="v num">${pct(rate)}</div><div class="s">낮·밤 ${fmt(cap)}회 기준</div></div>
+    <div class="kpi"><div class="k">평균 객단가</div><div class="v num">${fmt(Math.round(avg))}<span style="font-size:13px">원</span></div><div class="s">건당 결제금액</div></div>
+  </div></section>
+  <section><div class="card">
+    <h3>지점별 실적</h3>
+    <div class="tblwrap" style="border:0"><table class="tbl">
+      <thead><tr><th>지점</th><th class="r">건수</th><th class="r">매출</th><th class="r">예약률</th><th class="r">평균단가</th></tr></thead>
+      <tbody>${byB.map(x=>`<tr><td style="font-weight:700">${esc(x.b.name)}</td>
+        <td class="r num">${x.cnt}</td><td class="r num">${fmt(x.rev)}</td>
+        <td class="r num">${pct(x.rate)}</td><td class="r num">${x.cnt?fmt(Math.round(x.avg)):'-'}</td></tr>`).join('')}
+      <tr class="sum"><td>합계</td><td class="r num">${rs.length}</td><td class="r num">${fmt(rev)}</td><td class="r num">${pct(rate)}</td><td class="r num">${fmt(Math.round(avg))}</td></tr></tbody>
+    </table></div>
+    <div style="margin-top:14px">${byB.map(x=>`<div class="barrow"><span class="lb">${esc(x.b.name)}</span>
+      <span class="tr"><i style="width:${Math.round(x.rev/maxRev*100)}%"></i></span>
+      <span class="vl num">${fmt(x.rev)}원</span></div>`).join('')}</div>
+  </div></section>
+  <section><div class="row2" style="align-items:start">
+    <div class="card"><h3>요일별 예약</h3>
+      ${byDow.map(x=>`<div class="barrow"><span class="lb" style="width:34px;flex-basis:34px">${x.d}</span>
+        <span class="tr"><i style="width:${Math.round(x.cnt/maxDow*100)}%;background:${['토','일'].includes(x.d)?'var(--point)':'var(--blue)'}"></i></span>
+        <span class="vl num" style="width:52px">${x.cnt}건</span></div>`).join('')}
+    </div>
+    <div class="card"><h3>채널 · 타임 구성</h3>
+      <p class="sect-t" style="margin-top:2px">예약 채널</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+        <span class="pill green">네이버 ${src.naver}건 · ${fmt(srcRev.naver)}원</span>
+        <span class="pill blue">자체(BF) ${src.self}건 · ${fmt(srcRev.self)}원</span>
+        ${src.etc?`<span class="pill gray">기타·수동 ${src.etc}건 · ${fmt(srcRev.etc)}원</span>`:''}
+      </div>
+      <p class="sect-t">이용 타임</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <span class="pill line">낮타임 ${slots.day||0}건</span>
+        <span class="pill line">밤타임 ${slots.night||0}건</span>
+        <span class="pill amber">올데이 ${slots.allday||0}건</span>
+        ${slots.etc?`<span class="pill gray">기타 ${slots.etc}건</span>`:''}
+      </div>
+      <p class="hint" style="margin-top:14px">예약번호가 N으로 시작하면 네이버, BF로 시작하면 자체 예약으로 집계합니다.</p>
+    </div>
+  </div></section>`;
+}
+
+/* --- 비용·손익 --- */
+function costDraft(ym){
+  if(!S.ui.costDraft || S.ui.costDraftYM!==ym){
+    S.ui.costDraftYM=ym;
+    S.ui.costDraft={};
+    activeBranches().forEach(b=>{
+      const c=S.costs.find(x=>x.ym===ym&&x.branch_id===b.id)||{};
+      const d={fee_pct:+c.fee_pct||0};
+      COST_FIELDS.forEach(([k])=>d[k]=+c[k]||0);
+      S.ui.costDraft[b.id]=d;
+    });
+  }
+  return S.ui.costDraft;
+}
+function kpiTabCost(ym){
+  const draft=costDraft(ym);
+  const brs=activeBranches();
+  const rows=brs.map(b=>{
+    const rs=monthRes(ym).filter(r=>r.branch_id===b.id);
+    const rev=rs.reduce((s,r)=>s+(+r.amount||0),0);
+    const d=draft[b.id];
+    const fee=Math.round(rev*(+d.fee_pct||0)/100);
+    const cost=COST_FIELDS.reduce((s,[k])=>s+(+d[k]||0),0)+fee;
+    const profit=rev-cost;
+    return {b,rev,d,fee,cost,profit};
+  });
+  const T=rows.reduce((a,x)=>({rev:a.rev+x.rev,cost:a.cost+x.cost,profit:a.profit+x.profit}),{rev:0,cost:0,profit:0});
+  return `
+  <div class="card">
+    <div class="hd"><h3>${ymLabel(ym)} 지점별 손익</h3><span class="sp"></span>
+      <button class="btn sm" id="csPrev">전월 비용 불러오기</button>
+      <button class="btn primary sm" id="csSave">저장</button></div>
+    <p class="hint" style="margin:0 0 12px">비용을 입력하면 영업이익이 바로 계산됩니다. 예약채널 수수료는 <b>%</b>로 입력하면 해당 월 매출 기준으로 자동 계산됩니다. 값 입력 후 칸을 벗어나면 반영돼요.</p>
+    <div class="tblwrap" style="border:0"><table class="tbl" style="min-width:900px">
+      <thead><tr><th>지점</th><th class="r">매출</th>
+        ${COST_FIELDS.map(([k,l])=>`<th class="r">${l}</th>`).join('')}
+        <th class="r">채널수수료</th><th class="r">비용 합계</th><th class="r">영업이익</th><th class="r">이익률</th></tr></thead>
+      <tbody>
+      ${rows.map(x=>`<tr>
+        <td style="font-weight:700;white-space:nowrap">${esc(x.b.name)}</td>
+        <td class="r num">${fmt(x.rev)}</td>
+        ${COST_FIELDS.map(([k])=>`<td class="r"><input type="number" class="inp mini" data-cost="${x.b.id}|${k}" value="${x.d[k]||''}" placeholder="0"></td>`).join('')}
+        <td class="r" style="white-space:nowrap"><input type="number" class="inp mini" style="min-width:56px;width:56px" data-cost="${x.b.id}|fee_pct" value="${x.d.fee_pct||''}" placeholder="%" step="0.1">%
+          <div class="hint num">${x.fee?fmt(x.fee)+'원':''}</div></td>
+        <td class="r num">${fmt(x.cost)}</td>
+        <td class="r num" style="font-weight:800;color:${x.profit>=0?'var(--green)':'var(--point-deep)'}">${fmt(x.profit)}</td>
+        <td class="r num">${x.rev?pct(x.profit/x.rev):'-'}</td></tr>`).join('')}
+      <tr class="sum"><td>합계</td><td class="r num">${fmt(T.rev)}</td>
+        <td class="r num" colspan="${COST_FIELDS.length+1}" style="font-weight:600;color:var(--sub)">비용 상세는 지점별 입력</td>
+        <td class="r num">${fmt(T.cost)}</td>
+        <td class="r num" style="color:${T.profit>=0?'var(--green)':'var(--point-deep)'}">${fmt(T.profit)}</td>
+        <td class="r num">${T.rev?pct(T.profit/T.rev):'-'}</td></tr>
+      </tbody>
+    </table></div>
+  </div>`;
+}
+function bindCost(ym){
+  $$('[data-cost]').forEach(inp=>{
+    inp.addEventListener('change',()=>{
+      const [bid,k]=inp.dataset.cost.split('|');
+      S.ui.costDraft[bid][k]=+inp.value||0;
+      render();
+    });
+  });
+  $('#csSave').onclick=async ()=>{
+    const rows=Object.entries(S.ui.costDraft).map(([branch_id,d])=>Object.assign({branch_id},d));
+    try{ await api('/costs/save','POST',{ym, rows});
+      rows.forEach(r=>{
+        const i=S.costs.findIndex(c=>c.ym===ym&&c.branch_id===r.branch_id);
+        const rec=Object.assign({ym},r);
+        if(i>=0) S.costs[i]=Object.assign(S.costs[i],rec); else S.costs.push(rec);
+      });
+      toast('비용을 저장했습니다'); }catch(e){ toast(e.message); }
+  };
+  $('#csPrev').onclick=async ()=>{
+    const pm=shiftYM(ym,-1);
+    await ensureMonth(pm);
+    let found=false;
+    activeBranches().forEach(b=>{
+      const c=S.costs.find(x=>x.ym===pm&&x.branch_id===b.id);
+      if(c){ found=true;
+        COST_FIELDS.forEach(([k])=>S.ui.costDraft[b.id][k]=+c[k]||0);
+        S.ui.costDraft[b.id].fee_pct=+c.fee_pct||0; }
+    });
+    if(found){ toast(`${ymLabel(pm)} 비용을 불러왔습니다. 저장을 눌러 확정하세요.`); render(); }
+    else toast('전월에 저장된 비용이 없습니다');
+  };
+}
+
+/* --- 예약 엑셀 업로드 --- */
+function kpiTabUpload(){
+  return `
+  <div class="card" style="margin-bottom:14px">
+    <h3>호스트 페이지 예약내역 업로드</h3>
+    <p class="hint" style="margin:0 0 12px">host.jssystems.kr에서 내려받은 월별 예약·매출 엑셀(xlsx)을 그대로 올리면 됩니다.
+    <b>이용일 · 지점 · 구분 · 결제금액</b> 열을 자동으로 찾아 읽고, 지점 이름도 자동으로 맞춰 드립니다.</p>
+    <div class="drop" id="upDrop">
+      <div style="font-size:30px;margin-bottom:6px">📄</div>
+      <b>엑셀 파일을 끌어다 놓거나 눌러서 선택</b>
+      <div class="hint" style="margin-top:4px">.xlsx · .xls</div>
+      <input type="file" id="upFile" accept=".xlsx,.xls" style="display:none">
+    </div>
+    <div id="upResult" style="margin-top:14px"></div>
+  </div>`;
+}
+function bindUpload(){
+  const drop=$('#upDrop'), file=$('#upFile');
+  drop.onclick=()=>file.click();
+  ['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{ e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{ e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop',e=>{ const f=e.dataTransfer.files[0]; if(f) parseExcel(f); });
+  file.onchange=()=>{ if(file.files[0]) parseExcel(file.files[0]); };
+}
+function normName(s){ return String(s||'').replace(/\s+/g,'').toLowerCase(); }
+function matchBranch(name){
+  const n=normName(name);
+  if(!n) return null;
+  for(const b of S.branches){
+    if(normName(b.name)===n) return b.id;
+    const al=String(b.alias||'').split(',').map(normName).filter(Boolean);
+    if(al.includes(n)) return b.id;
+  }
+  for(const b of S.branches){
+    const bn=normName(b.name);
+    if(bn.includes(n)||n.includes(bn)) return b.id;
+    const al=String(b.alias||'').split(',').map(normName).filter(Boolean);
+    if(al.some(a=>a&&(a.includes(n)||n.includes(a)))) return b.id;
+  }
+  return null;
+}
+async function parseExcel(f){
+  $('#upResult').innerHTML='<p class="hint">읽는 중...</p>';
+  try{
+    const buf=await f.arrayBuffer();
+    const wb=XLSX.read(buf,{type:'array'});
+    const sName=wb.SheetNames.find(n=>n.includes('예약'))||wb.SheetNames[0];
+    const rows=XLSX.utils.sheet_to_json(wb.Sheets[sName],{header:1,raw:true,defval:''});
+    let hi=-1, H={};
+    for(let i=0;i<Math.min(rows.length,12);i++){
+      const r=rows[i].map(c=>String(c).replace(/\s/g,''));
+      if(r.some(c=>c.includes('이용일'))&&r.some(c=>c.includes('지점'))){
+        hi=i;
+        r.forEach((c,ci)=>{
+          if(c.includes('이용일')&&H.date==null) H.date=ci;
+          else if(c.includes('지점')&&H.branch==null) H.branch=ci;
+          else if(c.includes('구분')&&H.slot==null) H.slot=ci;
+          else if(c.includes('예약번호')) H.resno=ci;
+          else if(c.includes('예약자')) H.cust=ci;
+          else if(c.includes('연락처')) H.phone=ci;
+          else if(c.includes('이용시작')) H.st=ci;
+          else if(c.includes('이용종료')) H.et=ci;
+          else if(c.includes('결제')||c.includes('금액')) H.amt=H.amt==null?ci:H.amt;
+          else if(c==='상태') H.status=ci;
+          else if(c.includes('이슈')) H.issue=ci;
+          else if(c.includes('비고')||c.includes('메모')) H.memo=ci;
+        });
+        break;
+      }
+    }
+    if(hi<0) throw new Error('헤더 행을 찾지 못했습니다. "이용일"과 "지점" 열이 있는 엑셀인지 확인해 주세요.');
+    const cell=(r,k)=> H[k]==null?'':r[H[k]];
+    const timeOf=v=>{
+      if(v===''||v==null) return '';
+      if(typeof v==='number') return serialToTime(v);
+      const m=String(v).match(/(\d{1,2}):(\d{2})/); return m?pad2(+m[1])+':'+m[2]:'';
+    };
+    const parsed=[], names=new Set(), badDate=[];
+    for(let i=hi+1;i<rows.length;i++){
+      const r=rows[i]; if(!r||!r.length) continue;
+      const dv=cell(r,'date'); const bn=String(cell(r,'branch')).trim();
+      if(dv===''&&!bn) continue;
+      let ds='';
+      if(typeof dv==='number') ds=serialToDate(dv);
+      else ds=parseAnyDate(dv);
+      if(!ds){ if(bn) badDate.push(i+1); continue; }
+      const gubun=String(cell(r,'slot'));
+      const slot=gubun.includes('올')?'allday':gubun.includes('밤')?'night':gubun.includes('낮')?'day':'etc';
+      let amt=cell(r,'amt');
+      amt=+String(amt).replace(/[^\d.-]/g,'')||0;
+      names.add(bn);
+      parsed.push({res_date:ds, branchName:bn, slot,
+        resno:String(cell(r,'resno')||'').trim(), customer:String(cell(r,'cust')||'').trim(),
+        phone:String(cell(r,'phone')||'').trim(), amount:amt,
+        status:String(cell(r,'status')||'확정').trim()||'확정',
+        issue:String(cell(r,'issue')||'').trim(), memo:String(cell(r,'memo')||'').trim(),
+        start_t:timeOf(cell(r,'st')), end_t:timeOf(cell(r,'et'))});
+    }
+    if(!parsed.length) throw new Error('읽을 수 있는 예약 행이 없습니다.');
+    const unmatched=[...names].filter(n=>n&&!matchBranch(n));
+    S.ui.upload={parsed, unmatched, map:{}, badDate, file:f.name};
+    renderUploadPreview();
+  }catch(e){
+    $('#upResult').innerHTML=`<div class="hint red" style="border-radius:9px;padding:10px 13px">${esc(e.message||'파일을 읽지 못했습니다.')}</div>`;
+  }
+}
+function renderUploadPreview(){
+  const U=S.ui.upload;
+  const ymCnt={};
+  U.parsed.forEach(p=>{ ymCnt[p.res_date.slice(0,7)]=(ymCnt[p.res_date.slice(0,7)]||0)+1; });
+  const yms=Object.keys(ymCnt).sort();
+  const mainYM=yms.slice().sort((a,b)=>ymCnt[b]-ymCnt[a])[0];
+  const bid=n=> U.map[n]||matchBranch(n);
+  const ready=U.parsed.filter(p=>bid(p.branchName));
+  const skip=U.parsed.length-ready.length;
+  const rev=ready.reduce((s,p)=>s+p.amount,0);
+  const byB={};
+  ready.forEach(p=>{ const id=bid(p.branchName); byB[id]=(byB[id]||0)+1; });
+  $('#upResult').innerHTML=`
+    <div class="hint b" style="margin-bottom:12px"><b>${esc(U.file)}</b> · ${U.parsed.length}행 읽음 · 대상 월 <b>${yms.map(ymLabel).join(', ')}</b>
+    ${U.badDate.length?`<br><span style="color:var(--amber)">날짜를 읽지 못한 ${U.badDate.length}행은 제외됩니다.</span>`:''}</div>
+    ${U.unmatched.length?`<div class="card" style="border-color:#F0DCB8;background:var(--amber-soft);margin-bottom:12px">
+      <b style="font-size:13.5px">지점 이름을 찾지 못했어요 — 어느 지점인지 골라 주세요</b>
+      ${U.unmatched.map(n=>`<div style="display:flex;gap:10px;align-items:center;margin-top:8px">
+        <span style="flex:1;font-size:13.5px">"${esc(n)}"</span>
+        <select class="sel" style="width:auto;min-width:170px" data-umap="${esc(n)}">
+          <option value="">건너뛰기</option>
+          ${activeBranches().map(b=>`<option value="${b.id}" ${U.map[n]===b.id?'selected':''}>${esc(b.name)}</option>`).join('')}
+        </select></div>`).join('')}
+    </div>`:''}
+    <div class="tblwrap" style="margin-bottom:12px"><table class="tbl">
+      <thead><tr><th>지점</th><th class="r">건수</th></tr></thead>
+      <tbody>${Object.entries(byB).map(([id,c])=>`<tr><td>${esc(bName(id))}</td><td class="r num">${c}건</td></tr>`).join('')}
+      <tr class="sum"><td>합계 ${skip?`<span class="hint">(매칭 안 된 ${skip}건 제외)</span>`:''}</td><td class="r num">${ready.length}건 · ${fmt(rev)}원</td></tr></tbody>
+    </table></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn primary" id="upReplace">해당 월 교체 업로드</button>
+      <button class="btn" id="upMerge">기존에 추가(중복 예약번호 제외)</button>
+    </div>
+    <p class="hint" style="margin-top:8px">교체: 위 월의 <b>기존 엑셀 업로드분만</b> 지우고 새로 넣습니다(직접 등록분은 유지). 매달 최신 파일을 통째로 올릴 때 추천해요.</p>`;
+  $$('[data-umap]').forEach(sel=>sel.onchange=()=>{ U.map[sel.dataset.umap]=sel.value; renderUploadPreview(); });
+  const go=async mode=>{
+    const rows=U.parsed.filter(p=>bid(p.branchName)).map(p=>({
+      branch_id:bid(p.branchName), res_date:p.res_date, slot:p.slot, resno:p.resno,
+      customer:p.customer, phone:p.phone, amount:p.amount, status:p.status,
+      issue:p.issue, memo:p.memo, start_t:p.start_t, end_t:p.end_t, source:'excel'}));
+    if(!rows.length){ toast('업로드할 행이 없습니다'); return; }
+    try{
+      const r=await api('/reservations/import','POST',{mode, rows});
+      const f=yms.sort()[0]+'-01', t=monthRange(yms.sort().slice(-1)[0])[1];
+      await loadData(f<S.range.from?f:S.range.from, t>S.range.to?t:S.range.to);
+      toast(`${r.added}건을 반영했습니다`);
+      S.ui.kpiYM=mainYM; S.ui.kpiTab=0; S.ui.upload=null; S.ui.costDraftYM=null; render();
+    }catch(e){ toast(e.message); }
+  };
+  $('#upReplace').onclick=()=>go('replace');
+  $('#upMerge').onclick=()=>go('merge');
+}
+
+/* ==================================================
+   설정 · 내 정보
+   ================================================== */
+function vSet(){
+  const tabs=['지점 관리','운영 시간','계정 관리','데이터·연결'];
+  const tb=S.ui.setTab;
+  let body='';
+  if(tb===0) body=setTabBranch();
+  else if(tb===1) body=setTabTimes();
+  else if(tb===2) body=setTabUsers();
+  else body=setTabData();
+  layout('set', `
+    <div class="tabs" style="margin-bottom:16px">${tabs.map((t,i)=>`<button class="${tb===i?'on':''}" data-stab="${i}">${t}</button>`).join('')}</div>
+    ${body}`);
+  $$('[data-stab]').forEach(b=>b.onclick=()=>{ S.ui.setTab=+b.dataset.stab; render(); });
+  if(tb===0) bindSetBranch();
+  else if(tb===1) bindSetTimes();
+  else if(tb===2) bindSetUsers();
+  else bindSetData();
+}
+function setTabBranch(){
+  return `<div class="card">
+    <div class="hd"><h3>직영 지점</h3><span class="sp"></span><button class="btn sm" id="sbAdd">＋ 지점 추가</button></div>
+    <p class="hint" style="margin:0 0 12px">별칭은 엑셀 업로드 때 지점 이름을 맞추는 데 쓰입니다. 쉼표(,)로 여러 개 등록할 수 있어요.</p>
+    <div class="tblwrap" style="border:0"><table class="tbl">
+      <thead><tr><th>지점명</th><th>별칭</th><th class="c">상태</th><th class="c">관리</th></tr></thead>
+      <tbody>${S.branches.sort((a,b)=>(a.sort||0)-(b.sort||0)).map(b=>`<tr>
+        <td style="font-weight:700">${esc(b.name)}</td>
+        <td class="hint">${esc(b.alias||'-')}</td>
+        <td class="c">${b.active!==0?'<span class="pill green">운영중</span>':'<span class="pill gray">중지</span>'}</td>
+        <td class="c"><button class="btn xs" data-sbe="${b.id}">수정</button></td></tr>`).join('')}</tbody>
+    </table></div></div>`;
+}
+function bindSetBranch(){
+  const open=(b)=>{
+    modal(b?'지점 수정':'지점 추가', `
+      <div class="field"><label>지점명</label><input class="inp" id="sbNm" value="${b?esc(b.name):''}" placeholder="예) 신촌 어반홀리"></div>
+      <div class="field"><label>별칭(엑셀 매칭용, 쉼표 구분)</label><input class="inp" id="sbAl" value="${b?esc(b.alias||''):''}" placeholder="예) 어반홀리,urban"></div>
+      ${b?`<div class="field"><label>상태</label><select class="sel" id="sbAc"><option value="1" ${b.active!==0?'selected':''}>운영중</option><option value="0" ${b.active===0?'selected':''}>운영 중지</option></select></div>`:''}`,
+      `<button class="btn" onclick="closeModal()">취소</button><button class="btn primary" id="sbGo">${b?'저장':'추가'}</button>`);
+    $('#sbGo').onclick=async ()=>{
+      const name=$('#sbNm').value.trim();
+      if(!name){ toast('지점명을 입력해 주세요'); return; }
+      const payload={name, alias:$('#sbAl').value.trim()};
+      if(b) payload.active=+$('#sbAc').value;
+      try{
+        if(b){ const r=await api('/branches/'+b.id,'PATCH',payload); Object.assign(b,r.branch); }
+        else{ const r=await api('/branches','POST',Object.assign({sort:S.branches.length+1,active:1},payload)); S.branches.push(r.branch); }
+        closeModal(); toast('저장했습니다'); render();
+      }catch(e){ toast(e.message); }
+    };
+  };
+  $('#sbAdd').onclick=()=>open(null);
+  $$('[data-sbe]').forEach(bt=>bt.onclick=()=>open(S.branches.find(x=>x.id===bt.dataset.sbe)));
+}
+function setTabTimes(){
+  const t=S.settings.times;
+  const f=(k,l)=>`<div class="field"><label>${l}</label><div style="display:flex;gap:8px;align-items:center">
+    <input type="time" class="inp" id="tm_${k}_0" value="${t[k][0]}"> <span class="hint">~</span>
+    <input type="time" class="inp" id="tm_${k}_1" value="${t[k][1]}"></div></div>`;
+  return `<div class="card" style="max-width:560px">
+    <h3>운영 시간 · 청소 규칙</h3>
+    <p class="hint" style="margin:0 0 14px">여기 값이 청소 일정 자동 계산의 기준이 됩니다. 밤타임 종료가 시작보다 이르면 다음 날 아침으로 계산돼요.</p>
+    ${f('day','낮타임')} ${f('night','밤타임 (종료는 다음 날)')} ${f('allday','올데이')}
+    <div class="row2">
+      <div class="field"><label>다음 입실 전 청소 완료(분)</label><input type="number" class="inp" id="tmBuf" value="${S.settings.clean_before_min}"></div>
+      <div class="field"><label>중간 정리 마감 시각</label><input type="time" class="inp" id="tmMid" value="${S.settings.mid_deadline}"></div>
+    </div>
+    <div class="field"><label>중간 정리 항목(줄바꿈 구분)</label><textarea class="ta" id="tmQuick">${esc((S.settings.quick_items||[]).join('\n'))}</textarea></div>
+    <button class="btn primary" id="tmSave">저장</button>
+  </div>`;
+}
+function bindSetTimes(){
+  $('#tmSave').onclick=async ()=>{
+    const g=(k,i)=>$(`#tm_${k}_${i}`).value;
+    const settings={
+      times:{day:[g('day',0),g('day',1)], night:[g('night',0),g('night',1)], allday:[g('allday',0),g('allday',1)]},
+      clean_before_min:+$('#tmBuf').value||30,
+      mid_deadline:$('#tmMid').value||'18:30',
+      quick_items:$('#tmQuick').value.split('\n').map(s=>s.trim()).filter(Boolean)
+    };
+    try{ await api('/settings','POST',{settings}); S.settings=settings; toast('저장했습니다. 청소 일정에 바로 반영됩니다.'); render(); }
+    catch(e){ toast(e.message); }
+  };
+}
+function setTabUsers(){
+  if(S.user.role!=='owner') return `<div class="empty">계정 관리는 대표 계정에서만 가능합니다.</div>`;
+  return `<div class="card">
+    <div class="hd"><h3>계정 관리</h3><span class="sp"></span><button class="btn sm" id="usAdd">＋ 계정 추가</button></div>
+    <p class="hint" style="margin:0 0 12px">청소근무자는 배정된 지점의 청소와 시설 신고만 볼 수 있고, 예약자 이름·연락처·금액은 보이지 않습니다.</p>
+    <div class="tblwrap" style="border:0"><table class="tbl">
+      <thead><tr><th>이름</th><th>아이디</th><th>역할</th><th>담당 지점</th><th class="c">상태</th><th class="c">관리</th></tr></thead>
+      <tbody>${S.users.map(u=>`<tr>
+        <td style="font-weight:700">${esc(u.name)}</td><td class="hint">${esc(u.username)}</td>
+        <td>${ROLE_LABEL[u.role]||u.role}</td>
+        <td class="hint">${u.role==='worker'&&u.branch_ids&&u.branch_ids.length?u.branch_ids.map(bName).map(esc).join(', '):'전체'}</td>
+        <td class="c">${u.active!==0?'<span class="pill green">활성</span>':'<span class="pill gray">중지</span>'}</td>
+        <td class="c"><button class="btn xs" data-use="${u.id}">수정</button></td></tr>`).join('')}</tbody>
+    </table></div></div>`;
+}
+function bindSetUsers(){
+  if(S.user.role!=='owner') return;
+  const open=(u)=>{
+    modal(u?'계정 수정':'계정 추가', `
+      <div class="row2">
+        <div class="field"><label>이름</label><input class="inp" id="usNm" value="${u?esc(u.name):''}"></div>
+        <div class="field"><label>아이디</label><input class="inp" id="usId" value="${u?esc(u.username):''}" ${u?'disabled':''}></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>역할</label><select class="sel" id="usRl">${Object.entries(ROLE_LABEL).map(([k,v])=>`<option value="${k}" ${u&&u.role===k?'selected':''}>${v}</option>`).join('')}</select></div>
+        <div class="field"><label>${u?'비밀번호 재설정(비우면 유지)':'비밀번호'}</label><input class="inp" id="usPw" type="password" autocomplete="new-password"></div>
+      </div>
+      <div class="field"><label>담당 지점 (청소근무자용 · 미선택 시 전체)</label>
+        <div style="display:flex;flex-direction:column;gap:5px">
+        ${activeBranches().map(b=>`<label style="display:flex;gap:8px;align-items:center;font-size:14px">
+          <input type="checkbox" data-usb="${b.id}" ${u&&u.branch_ids&&u.branch_ids.includes(b.id)?'checked':''}> ${esc(b.name)}</label>`).join('')}</div></div>
+      ${u?`<div class="field"><label>상태</label><select class="sel" id="usAc"><option value="1" ${u.active!==0?'selected':''}>활성</option><option value="0" ${u.active===0?'selected':''}>중지(로그인 불가)</option></select></div>`:''}`,
+      `<button class="btn" onclick="closeModal()">취소</button><button class="btn primary" id="usGo">${u?'저장':'추가'}</button>`);
+    $('#usGo').onclick=async ()=>{
+      const name=$('#usNm').value.trim(), pw=$('#usPw').value;
+      const branch_ids=$$('[data-usb]').filter(c=>c.checked).map(c=>c.dataset.usb);
+      if(!name){ toast('이름을 입력해 주세요'); return; }
+      try{
+        if(u){
+          const payload={name, role:$('#usRl').value, branch_ids, active:+$('#usAc').value};
+          if(pw) payload.password=pw;
+          const r=await api('/users/'+u.id,'PATCH',payload); Object.assign(u,r.user);
+        }else{
+          const username=$('#usId').value.trim();
+          if(!username||!pw){ toast('아이디와 비밀번호를 입력해 주세요'); return; }
+          const r=await api('/users','POST',{name,username,password:pw,role:$('#usRl').value,branch_ids});
+          S.users.push(r.user);
+        }
+        closeModal(); toast('저장했습니다'); render();
+      }catch(e){ toast(e.message); }
+    };
+  };
+  $('#usAdd').onclick=()=>open(null);
+  $$('[data-use]').forEach(b=>b.onclick=()=>open(S.users.find(x=>x.id===b.dataset.use)));
+}
+function setTabData(){
+  const apiOn=S.mode==='api';
+  return `
+  <div class="card" style="margin-bottom:12px">
+    <h3>연결 상태</h3>
+    <p style="margin:6px 0 10px;font-size:14px">
+      ${apiOn?'<span class="pill green">서버 연결됨</span> Cloudflare D1 데이터베이스에 저장되고 있습니다. 모든 기기에서 같은 데이터를 봅니다.'
+        :'<span class="pill amber">데모 모드</span> 지금은 이 브라우저(localStorage)에만 저장됩니다. 팀원과 함께 쓰려면 아래 안내대로 D1 데이터베이스를 연결해 주세요.'}
+    </p>
+    ${!apiOn?`<button class="btn sm" id="sdGuide">D1 연결 방법 보기</button>`:''}
+  </div>
+  ${!apiOn?`<div class="card" style="margin-bottom:12px">
+    <h3>데모 데이터 백업</h3>
+    <p class="hint" style="margin:0 0 10px">데모에서 입력한 내용을 파일로 저장하거나 다른 브라우저로 옮길 수 있습니다.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn sm" id="sdExp">JSON 내려받기</button>
+      <button class="btn sm" id="sdImp">JSON 불러오기</button>
+      <input type="file" id="sdFile" accept=".json" style="display:none">
+      <button class="btn sm" id="sdReset" style="color:var(--point-deep)">데모 초기화</button>
+    </div>
+  </div>`:''}
+  <div class="card">
+    <h3>호스트 페이지 자동 수집은요?</h3>
+    <p class="hint" style="margin:0;line-height:1.7">host.jssystems.kr 예약을 자동으로 가져오는 건 별도 서버 작업(같은 Cloudflare 계정 안에서 D1을 직접 읽는 동기화)이 필요해서 다음 단계로 잡아 두는 게 안전합니다.
+    아이디·비밀번호를 외부에 맡기는 방식은 권하지 않아요. 지금은 <b>매출·손익 → 예약 엑셀 업로드</b>에 월 1회 파일만 올리면 10초 안에 끝나도록 만들어 두었습니다.</p>
+  </div>`;
+}
+function bindSetData(){
+  const g=$('#sdGuide');
+  if(g) g.onclick=()=>modal('D1 데이터베이스 연결 (약 10분, 브라우저만 필요)', `
+    <ol style="margin:0;padding-left:20px;font-size:14px;line-height:1.85">
+      <li>이 폴더를 GitHub 저장소에 올리고, Cloudflare Pages에서 <b>Git 연동</b>으로 배포합니다.</li>
+      <li>Cloudflare 대시보드 → <b>Storage &amp; Databases → D1</b> → Create database → 이름 <b>ssople-ops</b></li>
+      <li>만든 DB의 <b>Console</b> 탭에 <b>schema.sql</b> 내용 전체를 붙여넣고 실행합니다.</li>
+      <li>Pages 프로젝트 → Settings → <b>Bindings</b> → D1 database 추가 → Variable name <b>DB</b> / Database <b>ssople-ops</b></li>
+      <li>Deployments에서 <b>Retry deployment</b> 한 번 → 사이트 새로고침 → "처음 설정" 화면에서 대표 계정을 만들면 끝.</li>
+    </ol>
+    <p class="hint" style="margin-top:10px">자세한 화면 설명은 함께 드린 README 문서에 있습니다. 기존 ssople-host DB는 건드리지 않습니다.</p>`);
+  const e=$('#sdExp');
+  if(e) e.onclick=()=>{
+    const data=localStorage.getItem(DEMO_KEY)||'{}';
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([data],{type:'application/json'}));
+    a.download=`쏘플_공간관리_데모백업_${todayStr()}.json`; a.click();
+  };
+  const im=$('#sdImp');
+  if(im) im.onclick=()=>$('#sdFile').click();
+  const sf=$('#sdFile');
+  if(sf) sf.onchange=async ()=>{
+    const f=sf.files[0]; if(!f) return;
+    try{
+      const txt=await f.text(); JSON.parse(txt);
+      localStorage.setItem(DEMO_KEY, txt);
+      toast('불러왔습니다. 다시 로그인해 주세요.'); doLogout();
+    }catch(err){ toast('올바른 백업 파일이 아닙니다'); }
+  };
+  const rs=$('#sdReset');
+  if(rs) rs.onclick=async ()=>{
+    if(!await confirm2('데모 데이터를 <b>모두 삭제</b>하고 처음 상태로 되돌릴까요?')) return;
+    localStorage.removeItem(DEMO_KEY); localStorage.removeItem('spms_token');
+    location.reload();
+  };
+}
+function vMe(){
+  const u=S.user;
+  layout('me', `
+    <div class="card" style="max-width:480px">
+      <h3>내 정보</h3>
+      <div class="field"><label>이름</label><div style="font-size:15px;font-weight:700">${esc(u.name)}</div></div>
+      <div class="row2">
+        <div class="field"><label>아이디</label><div>${esc(u.username)}</div></div>
+        <div class="field"><label>역할</label><div>${ROLE_LABEL[u.role]||u.role}</div></div>
+      </div>
+      ${u.role==='worker'?`<div class="field"><label>담당 지점</label><div>${u.branch_ids&&u.branch_ids.length?u.branch_ids.map(bName).map(esc).join(', '):'전체 지점'}</div></div>`:''}
+      <button class="btn full" id="meLogout" style="margin-top:6px">로그아웃</button>
+    </div>`);
+  $('#meLogout').onclick=doLogout;
+}
+
+/* ==================================================
+   렌더 디스패처 · 초기 구동
+   ================================================== */
+function render(){
+  if(!S.user){ renderLogin(); return; }
+  if(!S.loaded){ return; }
+  const {page,arg}=route();
+  const r=S.user.role;
+  const allow={
+    dash:['owner','manager','facility'],
+    clean:['owner','manager','facility','worker'],
+    task:['owner','manager','facility','worker'],
+    fac:['owner','manager','facility','worker'],
+    mkt:['owner','manager'],
+    kpi:['owner','manager'],
+    set:['owner','manager'],
+    me:['owner','manager','facility','worker']
+  };
+  const p=allow[page]&&allow[page].includes(r)?page:defaultRoute().slice(2);
+  if(p!==page){ location.hash='#/'+p; return; }
+  if(page==='dash') vDash();
+  else if(page==='clean') vClean();
+  else if(page==='task') vTask(decodeURIComponent(arg));
+  else if(page==='fac') vFac();
+  else if(page==='mkt') vMkt();
+  else if(page==='kpi') vKpi();
+  else if(page==='set') vSet();
+  else vMe();
+}
+
+async function init(){
+  $('#app').innerHTML='<div class="auth"><div class="hint">불러오는 중...</div></div>';
+  let health=null;
+  try{
+    const res=await fetch('/api/health');
+    if(res.ok) health=await res.json();
+  }catch(e){}
+  if(health&&health.ok){
+    S.mode='api';
+    if(health.needSetup){ renderSetup(); return; }
+    if(localStorage.getItem('spms_token')){
+      try{ await boot(); return; }catch(e){ localStorage.removeItem('spms_token'); }
+    }
+    renderLogin();
+  }else if(health&&health.needSchema){
+    renderSchemaGuide();
+  }else{
+    await startDemo();
+  }
+}
+async function startDemo(){
+  S.mode='demo';
+  const db=demoDB();
+  if(!db.users.length){ renderSetup(); return; }
+  if(db.session){ try{ await boot(); return; }catch(e){} }
+  renderLogin();
+}
+function renderSchemaGuide(){
+  $('#app').innerHTML=`
+  <div class="auth"><div class="authcard">
+    <div class="lg"><span class="mark">S</span><h2>데이터베이스 준비 필요</h2></div>
+    <p class="ds">D1 연결은 확인됐지만, 아직 테이블이 만들어지지 않았습니다.</p>
+    <div class="card" style="text-align:left;font-size:13.5px;line-height:1.8;background:var(--gray-soft)">
+      Cloudflare 대시보드 → <b>Storage &amp; Databases → D1</b> → 연결한 데이터베이스 선택 → <b>Console</b> 탭에서
+      저장소의 <b>schema.sql</b> 내용 전체를 붙여넣고 실행해 주세요.<br>
+      실행이 끝나면 아래 버튼으로 다시 확인하면 됩니다.
+    </div>
+    <button class="btn primary full" style="padding:12px;margin-top:14px" onclick="location.reload()">실행했어요, 다시 확인</button>
+    <button class="btn full" style="padding:11px;margin-top:8px" id="sgDemo">우선 데모 모드로 둘러보기</button>
+  </div></div>`;
+  $('#sgDemo').onclick=()=>startDemo();
+}
+init();
+</script>
+</body>
+</html>
