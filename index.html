@@ -117,6 +117,10 @@ body .shell .topbar{padding-top:10px}
 .pill.confirmed{background:var(--green-soft);color:var(--green)}
 .pill.skip{background:#fff;border:1px dashed var(--faint);color:var(--faint)}
 .pill.red{background:var(--point-soft);color:var(--point-deep)}
+.pill.urgentp{background:var(--point);color:#fff}
+.pill.hold{background:#FFF3D6;color:#8A5A00}
+.pill.dl{background:#EAF0FF;color:#2D5BD7}
+.pill.via{background:#F1F3F5;color:#6B7684;font-weight:600}
 .pill.blue{background:var(--blue-soft);color:var(--blue)}
 .pill.green{background:var(--green-soft);color:var(--green)}
 .pill.amber{background:var(--amber-soft);color:var(--amber)}
@@ -299,6 +303,32 @@ table.tbl{border-collapse:collapse;width:100%;font-size:13.5px;min-width:560px}
   .task .assg{margin-left:0;width:100%}
 }
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* ---------- v2 · 주간 보드 ---------- */
+.bday{background:var(--card);border:1px solid var(--line);border-radius:14px;margin-bottom:14px;overflow:hidden}
+.bday>.bh{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap;background:#FAFBFC}
+.bday>.bh b{font-size:15px}
+.bday.today>.bh{background:var(--point-soft)}
+.regline{display:flex;gap:8px;flex-wrap:wrap;padding:9px 14px;border-bottom:1px dashed var(--line);align-items:center}
+.regchip{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:99px;padding:4px 7px 4px 12px;font-size:12.5px;background:#fff}
+.regchip b{font-weight:800}
+.regchip .nm{color:var(--sub)}
+.regchip .nm.none{color:var(--point-deep);font-weight:700}
+.brow{display:grid;grid-template-columns:minmax(220px,38%) 1fr;border-bottom:1px solid var(--line)}
+.brow:last-child{border-bottom:0}
+.brow .bl{padding:10px 14px;border-right:1px solid var(--line);display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13.5px}
+.brow .br{padding:10px 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13.5px;cursor:pointer}
+.brow .br:hover{background:#FAFBFC}
+.ntbox{margin:0;padding:11px 14px;background:#FFFCF2;border-top:1px dashed var(--line)}
+.ntbox .nt{display:flex;gap:9px;align-items:flex-start;padding:5px 0;font-size:13.5px}
+.ntbox .nt .tx{flex:1;line-height:1.55}
+.ntbox .nt .rd{font-size:12px;color:var(--faint);white-space:nowrap}
+@media(max-width:760px){.brow{grid-template-columns:1fr}.brow .bl{border-right:0;border-bottom:1px dashed var(--line)}}
+@media print{
+  body{background:#fff}
+  .side,.topbar,.bottomnav,.noprint{display:none !important}
+  .main{margin:0}.content{padding:0}
+  .bday{break-inside:avoid;border-color:#bbb}
+}
 </style>
 </head>
 <body>
@@ -335,6 +365,8 @@ const DEFAULT_SETTINGS = {
   times:{ day:['12:00','17:00'], night:['19:00','10:00'], allday:['12:00','22:00'] },
   clean_before_min:30,           // 다음 입실 30분 전까지 청소 완료
   mid_deadline:'18:30',          // 낮→밤 사이 정리 마감(점주 가이드 기준)
+  std_minutes:120,               // 표준 청소 소요(분) — 가용 시간이 이보다 짧으면 '긴급'
+  concurrent_warn:3,             // 같은 날 동시 진행 지점 수가 이 값 이상이면 '인력 확인 필요' 표시
   quick_items:['환기·탈취','테이블·바닥 간단 정리','쓰레기·음식물 정리','화장실 점검(휴지·물내림)','다음 예약 옵션·비품 준비 확인']
 };
 
@@ -454,6 +486,9 @@ function demoDB(){
     demoSave(db);
   }
   if(!db.settings) db.settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+  db.settings = Object.assign({}, DEFAULT_SETTINGS, db.settings);
+  db.settings.times = Object.assign({}, DEFAULT_SETTINGS.times, db.settings.times||{});
+  ['profiles','assignments','notices','notice_reads','rates'].forEach(k=>{ if(!db[k]) db[k]=[]; });
   return db;
 }
 function demoSave(db){ localStorage.setItem(DEMO_KEY, JSON.stringify(db)); }
@@ -500,7 +535,14 @@ function demoApi(path, method, body){
     const cl = db.cleanings.filter(c=>c.clean_date>=addDays(from,-1) && c.clean_date<=addDays(to,1));
     const yms=new Set(); let d=from.slice(0,7); while(d<=to.slice(0,7)){ yms.add(d); d=shiftYM(d,1); }
     const costs = isMgr ? db.costs.filter(c=>yms.has(c.ym)) : [];
-    return ok({reservations:res, cleanings:cl, costs});
+    if(!isMgr) res = res.map(r=>Object.assign({}, r, {issue:(db.reservations.find(x=>x.id===r.id)||{}).issue?1:0}));
+    const asg = db.assignments.filter(a=>a.date>=addDays(from,-1) && a.date<=addDays(to,1));
+    const nts = db.notices.filter(n=>n.date>=addDays(from,-1) && n.date<=addDays(to,1));
+    const ids = new Set(nts.map(n=>n.id));
+    return ok({reservations:res, cleanings:cl, costs,
+      profiles:db.profiles, assignments:asg, notices:nts,
+      notice_reads:db.notice_reads.filter(r=>ids.has(r.notice_id)),
+      rates:isMgr?db.rates:[], last_sync:null, v2:true, host_bound:false});
   }
   if(p==='/issues' && method==='GET') return ok({issues:[...db.issues].sort((a,b)=>(b.created_at||'').localeCompare(a.created_at||''))});
   if(p==='/issues' && method==='POST'){
@@ -622,6 +664,64 @@ function demoApi(path, method, body){
     if(!isMgr) throw new Error('권한이 없습니다');
     db.settings=body.settings; demoSave(db); return ok({settings:db.settings});
   }
+  /* ---- v2 ---- */
+  if(seg[0]==='profiles' && seg[1] && method==='POST'){
+    if(!isMgr) throw new Error('권한이 없습니다');
+    let pr=db.profiles.find(x=>x.branch_id===seg[1]);
+    if(!pr){ pr={branch_id:seg[1]}; db.profiles.push(pr); }
+    Object.assign(pr, {region:body.region||'', scode:body.scode||'', default_worker:body.default_worker||'',
+      std_minutes:(body.std_minutes===''||body.std_minutes==null)?null:+body.std_minutes,
+      buffer_min:(body.buffer_min===''||body.buffer_min==null)?null:+body.buffer_min,
+      midday_deadline:body.midday_deadline||null, notes:body.notes||'', slots_json:body.slots_json||'',
+      updated_at:new Date().toISOString()});
+    demoSave(db); return ok({profile:pr});
+  }
+  if(p==='/assignments' && method==='POST'){
+    if(!isMgr) throw new Error('권한이 없습니다');
+    const region=body.region||'', branch_id=body.branch_id||'', worker=(body.worker||'').trim();
+    let a=db.assignments.find(x=>x.date===body.date && x.region===region && x.branch_id===branch_id);
+    if(!worker){ if(a) db.assignments=db.assignments.filter(x=>x!==a); demoSave(db); return ok({ok:true, removed:!!a}); }
+    if(!a){ a={id:uid(), date:body.date, region, branch_id}; db.assignments.push(a); }
+    Object.assign(a,{worker, created_by:me.name, created_at:new Date().toISOString()});
+    demoSave(db); return ok({assignment:a});
+  }
+  if(seg[0]==='assignments' && seg[1] && method==='DELETE'){
+    if(!isMgr) throw new Error('권한이 없습니다');
+    db.assignments=db.assignments.filter(x=>x.id!==seg[1]); demoSave(db); return ok({ok:true});
+  }
+  if(p==='/notices' && method==='POST'){
+    if(!isMgr) throw new Error('권한이 없습니다');
+    const n={id:uid(), date:body.date, body:body.body, created_by:me.name, created_at:new Date().toISOString()};
+    db.notices.push(n); demoSave(db); return ok({notice:n});
+  }
+  if(seg[0]==='notices' && seg[1] && seg[2]==='read' && method==='POST'){
+    if(body&&body.undo){ db.notice_reads=db.notice_reads.filter(r=>!(r.notice_id===seg[1]&&r.user_id===me.id)); demoSave(db); return ok({ok:true, read:false}); }
+    if(!db.notice_reads.some(r=>r.notice_id===seg[1]&&r.user_id===me.id))
+      db.notice_reads.push({notice_id:seg[1], user_id:me.id, user_name:me.name, read_at:new Date().toISOString()});
+    demoSave(db); return ok({ok:true, read:true});
+  }
+  if(seg[0]==='notices' && seg[1] && method==='DELETE'){
+    if(!isMgr) throw new Error('권한이 없습니다');
+    db.notices=db.notices.filter(n=>n.id!==seg[1]);
+    db.notice_reads=db.notice_reads.filter(r=>r.notice_id!==seg[1]);
+    demoSave(db); return ok({ok:true});
+  }
+  if(p==='/rates' && method==='POST'){
+    if(me.role!=='owner') throw new Error('단가 설정은 대표만 가능합니다');
+    let r=db.rates.find(x=>x.user_id===body.user_id);
+    if(!r){ r={user_id:body.user_id}; db.rates.push(r); }
+    r.rate=Math.max(0, Math.round(+body.rate||0));
+    demoSave(db); return ok({ok:true, user_id:r.user_id, rate:r.rate});
+  }
+  if(p==='/resissue' && method==='POST'){
+    if(!isMgr) throw new Error('권한이 없습니다');
+    const r=db.reservations.find(x=>x.id===body.res_id); if(!r) throw new Error('예약을 찾을 수 없습니다');
+    r.issue=String(body.issue||''); demoSave(db); return ok({reservation:r});
+  }
+  if(p==='/sync' && method==='POST'){
+    throw new Error('데모 모드에서는 동기화가 동작하지 않습니다. 실제 배포 후 HOSTDB를 연결하면 사용할 수 있어요.');
+  }
+  if(p==='/hostmap' && method==='POST'){ if(!isMgr) throw new Error('권한이 없습니다'); db.host_map=body.map||{}; demoSave(db); return ok({ok:true}); }
   throw new Error('알 수 없는 요청: '+p);
 }
 
@@ -632,6 +732,8 @@ const S = {
   mode:'demo', user:null, users:[], branches:[], check_items:[],
   settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)),
   reservations:[], cleanings:[], costs:[], issues:[], channels:[],
+  profiles:[], assignments:[], notices:[], notice_reads:[], rates:[],
+  lastSync:null, hostBound:false, v2ok:true,
   range:{from:null,to:null}, loaded:false
 };
 const isMgr = ()=> !!S.user && (S.user.role==='owner' || S.user.role==='manager');
@@ -644,10 +746,71 @@ const myBranches = ()=>{
 };
 const workerNames = ()=> S.users.filter(u=>u.active!==0 && u.role!=='owner').map(u=>u.name);
 
+/* ---------- v2 · 지점 프로필 · 배정 · 단가 헬퍼 ---------- */
+const DEFAULT_RATE = 15000;
+function parseSlots(json){ try{ const v=JSON.parse(json||''); return (v&&typeof v==='object')?v:null; }catch(e){ return null; } }
+const profMap = ()=> Object.fromEntries((S.profiles||[]).map(p=>[p.branch_id,p]));
+function bProf(bid){
+  const p=profMap()[bid]||{};
+  const g=S.settings||DEFAULT_SETTINGS;
+  const ov=parseSlots(p.slots_json);
+  return {
+    region:p.region||'', scode:p.scode||'',
+    default_worker:p.default_worker||'',
+    std:(p.std_minutes!=null&&p.std_minutes!=='')?+p.std_minutes:(+g.std_minutes||120),
+    buffer:(p.buffer_min!=null&&p.buffer_min!=='')?+p.buffer_min:(+g.clean_before_min||30),
+    mid:p.midday_deadline||g.mid_deadline||'18:30',
+    notes:p.notes||'',
+    times:Object.assign({}, g.times, ov||{})
+  };
+}
+const regionsAll = ()=> [...new Set(activeBranches().map(b=>bProf(b.id).region).filter(Boolean))];
+function findAssign(date, bid){
+  const reg=bProf(bid).region;
+  return (S.assignments||[]).find(a=>a.date===date && (
+    (a.branch_id && a.branch_id===bid) || (!a.branch_id && a.region && a.region===reg)
+  ));
+}
+function effAssignee(t){
+  const c=cleanRec(t.key);
+  if(c&&c.assignee) return {name:c.assignee, via:''};
+  const a=findAssign(t.clean_date, t.branch_id);
+  if(a&&a.worker) return {name:a.worker, via:'일괄'};
+  const dw=bProf(t.branch_id).default_worker;
+  if(dw) return {name:dw, via:'기본'};
+  return {name:'', via:''};
+}
+function rateOf(name){
+  const u=S.users.find(x=>x.name===name);
+  if(!u) return DEFAULT_RATE;
+  const r=(S.rates||[]).find(x=>x.user_id===u.id);
+  return r? +r.rate : DEFAULT_RATE;
+}
+const fmtDur = m=>{ if(m==null) return ''; const h=Math.floor(m/60), mm=m%60; return (h?h+'시간':'')+(mm?(h?' ':'')+mm+'분':(h?'':'0분')); };
+const weekMon = ds=>{ const d=new Date(ds+'T00:00:00'); const w=(d.getDay()+6)%7; return addDays(ds,-w); };
+const myRead = nid=> (S.notice_reads||[]).some(r=>r.notice_id===nid && r.user_id===S.user.id);
+const readsOf = nid=> (S.notice_reads||[]).filter(r=>r.notice_id===nid);
+
 async function loadData(from,to){
   S.range={from,to};
   const d = await api(`/data?from=${from}&to=${to}`);
   S.reservations=d.reservations||[]; S.cleanings=d.cleanings||[]; S.costs=d.costs||[];
+  S.profiles=d.profiles||[]; S.assignments=d.assignments||[]; S.notices=d.notices||[];
+  S.notice_reads=d.notice_reads||[]; if(d.rates) S.rates=d.rates;
+  S.lastSync=d.last_sync||S.lastSync||null; S.hostBound=!!d.host_bound; S.v2ok=d.v2!==false;
+}
+
+/* v2 · 호스트 예약 자동 반영 — 마지막 동기화가 12시간을 넘었으면 접속 시 조용히 1회 실행 */
+async function autoSync(){
+  if(S.mode!=='api' || !isMgr() || !S.hostBound || !S.v2ok) return;
+  const last=S.lastSync&&S.lastSync.ran_at ? new Date(S.lastSync.ran_at).getTime() : 0;
+  if(Date.now()-last < 12*3600*1000) return;
+  try{
+    const r=await api('/sync','POST',{});
+    S.lastSync={ran_at:r.ran_at, added:r.added, updated:r.updated, removed:r.removed, skipped:r.skipped, message:''};
+    if(r.added||r.updated||r.removed){ await loadData(S.range.from,S.range.to); render(); }
+    if(r.unmatched&&r.unmatched.length) toast(`예약 동기화 완료 · 미매칭 지점 ${r.unmatched.length}곳 — 설정 → 데이터·연결에서 확인하세요`);
+  }catch(e){ /* 자동 실행 실패는 조용히 넘어가고, 설정 화면의 수동 버튼에서 상세 안내 */ }
 }
 async function loadIssues(){ const d=await api('/issues'); S.issues=d.issues||[]; }
 async function loadChannels(){ const d=await api('/channels'); S.channels=d.channels||[]; }
@@ -655,11 +818,14 @@ async function loadChannels(){ const d=await api('/channels'); S.channels=d.chan
 async function boot(){
   const b = await api('/bootstrap');
   S.user=b.user; S.users=b.users||[]; S.branches=b.branches||[];
-  S.check_items=b.check_items||[]; S.settings=b.settings||S.settings;
+  S.check_items=b.check_items||[];
+  S.settings=Object.assign({}, DEFAULT_SETTINGS, b.settings||{});
+  S.settings.times=Object.assign({}, DEFAULT_SETTINGS.times, (b.settings&&b.settings.times)||{});
   const t=todayStr();
   await loadData(addDays(t,-7), addDays(t,27));
   await loadIssues(); await loadChannels();
   S.loaded=true;
+  autoSync();
   if(!location.hash || location.hash==='#/' || location.hash==='#') location.hash=defaultRoute();
   render();
 }
@@ -697,6 +863,7 @@ function navItems(){
   ];
   return [
     {h:'dash',  ic:'🏠', t:'대시보드'},
+    {h:'board', ic:'🗓️', t:'주간 보드'},
     {h:'clean', ic:'🧹', t:'청소관리', cnt:pendReview},
     {h:'fac',   ic:'🔧', t:'시설관리', cnt:openIssues},
     {h:'mkt',   ic:'📣', t:'홍보관리'},
@@ -704,7 +871,7 @@ function navItems(){
     {h:'set',   ic:'⚙️', t:'설정'}
   ];
 }
-const PAGE_TITLE = {dash:'대시보드', clean:'청소관리', task:'청소 체크리스트', fac:'시설관리', mkt:'홍보·노출관리', kpi:'매출·손익', set:'설정', me:'내 정보'};
+const PAGE_TITLE = {dash:'대시보드', board:'주간 운영 보드', clean:'청소관리', task:'청소 체크리스트', fac:'시설관리', mkt:'홍보·노출관리', kpi:'매출·손익', set:'설정', me:'내 정보'};
 
 function layout(active, inner, subtitle){
   const items=navItems();
@@ -729,6 +896,7 @@ function layout(active, inner, subtitle){
         ${subtitle?`<span class="sub">${subtitle}</span>`:''}
         <span class="sp"></span>
         ${modeTag}
+        ${S.v2ok===false&&isMgr()?`<span class="pill amber" title="D1 Console에서 upgrade_v2.sql을 1회 실행하면 사라집니다">업그레이드 SQL 필요</span>`:''}
         <span class="sub" style="font-weight:600">${esc(u.name)}</span>
       </header>
       <main class="content">${inner}</main>
@@ -824,7 +992,7 @@ function renderSetup(err){
    청소 일정 파생 (예약 → 청소 작업)
    ================================================== */
 const KIND_LABEL = {day:'정식 청소', night:'정식 청소', allday:'정식 청소', mid:'중간 정리', etc:'청소'};
-S.ui = {cleanTab:0, cleanFrom:null, cleanTo:null, cleanBranch:'', resYM:thisYM(), kpiYM:thisYM(), kpiTab:0, mktBranch:'', facFilter:'open', setTab:0};
+S.ui = {boardMon:null, cleanTab:0, cleanFrom:null, cleanTo:null, cleanBranch:'', resYM:thisYM(), kpiYM:thisYM(), kpiTab:0, mktBranch:'', facFilter:'open', setTab:0};
 
 function resActive(r){ return !String(r.status||'').includes('취소'); }
 function sameCustomer(a,b){
@@ -832,59 +1000,73 @@ function sameCustomer(a,b){
   return !!(a.customer && a.customer===b.customer && String(a.phone||'')===String(b.phone||''));
 }
 function deriveTasks(){
-  const st=S.settings;
-  const stStart = slot=> (st.times[slot]||['12:00'])[0];
-  const stEnd   = slot=> (st.times[slot]||['','17:00'])[1];
   const rs=S.reservations.filter(resActive);
   const byBD={}, byB={};
+  const stStart=(bid,slot)=>(bProf(bid).times[slot]||['12:00'])[0];
+  const stEnd=(bid,slot)=>(bProf(bid).times[slot]||['','17:00'])[1];
   rs.forEach(r=>{
     (byBD[r.branch_id+'|'+r.res_date]=byBD[r.branch_id+'|'+r.res_date]||{})[r.slot]=r;
     (byB[r.branch_id]=byB[r.branch_id]||[]).push(r);
   });
-  Object.values(byB).forEach(a=>a.sort((x,y)=>
-    (x.res_date+(x.start_t||stStart(x.slot))).localeCompare(y.res_date+(y.start_t||stStart(y.slot)))));
+  Object.entries(byB).forEach(([bid,a])=>a.sort((x,y)=>
+    (x.res_date+(x.start_t||stStart(bid,x.slot))).localeCompare(y.res_date+(y.start_t||stStart(bid,y.slot)))));
   const nextRes=(bid,date,time)=> (byB[bid]||[]).find(r=>{
-    const s=r.start_t||stStart(r.slot);
-    return r.res_date>date || (r.res_date===date && s>=time);
+    const sft=r.start_t||stStart(bid,r.slot);
+    return r.res_date>date || (r.res_date===date && sft>=time);
   });
-  const winAfter=(bid,date,fromT)=>{
+  /* 가용 창: 같은 날 다음 입실 → 분 단위 가용시간, 다음 입실이 다른 날 → 마감형(~까지 완료) */
+  const winCalc=(bid,date,fromT)=>{
+    const buf=bProf(bid).buffer;
     const n=nextRes(bid,date,fromT);
-    if(!n) return fromT+' 이후';
-    const ns=n.start_t||stStart(n.slot);
-    const dl=m2t(Math.max(0,t2m(ns)-(st.clean_before_min||30)));
-    if(n.res_date===date) return `${fromT} ~ ${dl} · 다음 입실 ${ns}`;
-    return `${fromT} 이후 · ${mdLabel(n.res_date)} ${dl}까지`;
+    if(!n) return {label:fromT+' 이후', avail:null, deadline:null};
+    const ns=n.start_t||stStart(bid,n.slot);
+    const dl=m2t(Math.max(0,t2m(ns)-buf));
+    if(n.res_date===date)
+      return {label:`${fromT} ~ ${dl} · 다음 입실 ${ns}`, avail:Math.max(0,t2m(dl)-t2m(fromT)), deadline:null};
+    return {label:`${fromT} 이후 · ${mdLabel(n.res_date)} ${dl}까지 완료`, avail:null, deadline:{date:n.res_date, t:dl}};
   };
-  const mk=(r,kind,clean_date,window_label,after_label,skipAllowed)=>({
-    key:`${r.branch_id}|${clean_date}|${kind}`, branch_id:r.branch_id,
-    clean_date, kind, window_label, after_label, skipAllowed:!!skipAllowed, res_id:r.id
-  });
+  const mk=(r,kind,clean_date,w,after_label,skipAllowed)=>{
+    const prof=bProf(r.branch_id);
+    const limit = kind==='mid' ? Math.min(prof.std,60) : prof.std;
+    return {
+      key:`${r.branch_id}|${clean_date}|${kind}`, branch_id:r.branch_id,
+      clean_date, kind, window_label:w.label, after_label, skipAllowed:!!skipAllowed, res_id:r.id,
+      availMin:w.avail, deadline:w.deadline||null,
+      urgent: w.avail!=null && w.avail<limit,
+      hold: !!r.issue,
+      issue_text: (typeof r.issue==='string')?r.issue:''
+    };
+  };
   const tasks=[];
   rs.forEach(r=>{
-    const slots=byBD[r.branch_id+'|'+r.res_date]||{};
+    const bid=r.branch_id;
+    const prof=bProf(bid);
+    const slots=byBD[bid+'|'+r.res_date]||{};
     if(r.slot==='day'){
       const night=slots.night;
-      const dayEnd=r.end_t||stEnd('day');
+      const dayEnd=r.end_t||stEnd(bid,'day');
       if(night){
-        const nightStart=night.start_t||stStart('night');
-        const dl=m2t(Math.min(t2m(st.mid_deadline||'18:30'), t2m(nightStart)-(st.clean_before_min||30)));
-        tasks.push(mk(r,'mid', r.res_date, `${dayEnd} ~ ${dl}`, '낮타임 종료 후 → 밤타임 입실 전', sameCustomer(r,night)));
+        const nightStart=night.start_t||stStart(bid,'night');
+        const dl=m2t(Math.max(0, Math.min(t2m(prof.mid), t2m(nightStart)-prof.buffer)));
+        const w={label:`${dayEnd} ~ ${dl}`, avail:Math.max(0,t2m(dl)-t2m(dayEnd)), deadline:null};
+        tasks.push(mk(r,'mid', r.res_date, w, '낮타임 종료 후 → 밤타임 입실 전', sameCustomer(r,night)));
       }else{
-        tasks.push(mk(r,'day', r.res_date, winAfter(r.branch_id,r.res_date,dayEnd), '낮타임 이용 종료 후', false));
+        tasks.push(mk(r,'day', r.res_date, winCalc(bid,r.res_date,dayEnd), '낮타임 이용 종료 후', false));
       }
     }else if(r.slot==='night'){
       const cd=addDays(r.res_date,1);
-      tasks.push(mk(r,'night', cd, winAfter(r.branch_id,cd, r.end_t||stEnd('night')), `밤타임 퇴실 후 · ${mdLabel(r.res_date)} 이용분`, false));
+      tasks.push(mk(r,'night', cd, winCalc(bid,cd, r.end_t||stEnd(bid,'night')), `밤타임 퇴실 후 · ${mdLabel(r.res_date)} 이용분`, false));
     }else if(r.slot==='allday'){
-      tasks.push(mk(r,'allday', r.res_date, winAfter(r.branch_id,r.res_date, r.end_t||stEnd('allday')), '올데이 이용 종료 후', false));
+      tasks.push(mk(r,'allday', r.res_date, winCalc(bid,r.res_date, r.end_t||stEnd(bid,'allday')), '올데이 이용 종료 후', false));
     }else{
-      tasks.push(mk(r,'etc', r.res_date, winAfter(r.branch_id,r.res_date, r.end_t||'22:00'), '이용 종료 후', false));
+      tasks.push(mk(r,'etc', r.res_date, winCalc(bid,r.res_date, r.end_t||'22:00'), '이용 종료 후', false));
     }
   });
   S.cleanings.filter(c=>c.manual).forEach(c=>{
     if(!tasks.some(t=>t.key===c.task_key))
       tasks.push({key:c.task_key, branch_id:c.branch_id, clean_date:c.clean_date, kind:c.kind||'etc',
-        window_label:c.window_label||'시간 협의', after_label:'수동 등록', skipAllowed:false, manual:true});
+        window_label:c.window_label||'시간 협의', after_label:'수동 등록', skipAllowed:false, manual:true,
+        availMin:null, deadline:null, urgent:false, hold:false, issue_text:''});
   });
   tasks.sort((a,b)=> (a.clean_date+'|'+a.window_label).localeCompare(b.clean_date+'|'+b.window_label)
     || bName(a.branch_id).localeCompare(bName(b.branch_id)));
@@ -926,19 +1108,23 @@ function taskCard(t, opt={}){
   const done=c?items.filter(i=>c.checks && c.checks[i.id]).length:0;
   const pctW=items.length? Math.round(done/items.length*100):0;
   const assg=c&&c.assignee?c.assignee:'';
+  const eff=effAssignee(t);
   const assignHtml = opt.assign
     ? `<label class="assg" onclick="event.stopPropagation()">담당
         <select class="sel" style="width:auto;padding:5px 26px 5px 9px;font-size:12.5px" data-assign="${t.key}">
-          <option value="">미배정</option>
+          <option value="">${eff.name&&!assg?`자동 · ${esc(eff.name)}${eff.via?'('+eff.via+')':''}`:'미배정'}</option>
           ${workerNames().map(n=>`<option ${n===assg?'selected':''}>${esc(n)}</option>`).join('')}
         </select></label>`
-    : `<span class="assg">👤 ${assg?esc(assg):'<span style="color:var(--faint)">미배정</span>'}</span>`;
+    : `<span class="assg">👤 ${eff.name?esc(eff.name)+(eff.via?` <span class="pill via">${eff.via}</span>`:''):'<span style="color:var(--point-deep);font-weight:700">미배정</span>'}</span>`;
   return `<div class="task ${stt}" data-task="${t.key}">
     <div class="l1">
       <span class="bn">${esc(bName(t.branch_id))}</span>
       <span class="pill ${t.kind==='mid'?'amber':'line'}">${KIND_LABEL[t.kind]||'청소'}</span>
       <span class="pill ${stt}">${CLEAN_STATUS[stt]||stt}</span>
       ${t.skipAllowed&&stt!=='skip'?`<span class="pill gray">동일 고객 연속 · 생략 가능</span>`:''}
+      ${t.urgent&&!['confirmed','skip'].includes(stt)?`<span class="pill urgentp">긴급 · 가능 ${fmtDur(t.availMin)} · 현장 대기</span>`:''}
+      ${t.deadline?`<span class="pill dl">~${mdLabel(t.deadline.date)} ${t.deadline.t}까지</span>`:''}
+      ${t.hold&&!['confirmed','skip'].includes(stt)?`<span class="pill hold">확인 후 진행</span>`:''}
     </div>
     <div class="l2">
       <span>🕐 ${esc(t.window_label)}</span>
@@ -982,7 +1168,20 @@ function vDash(){
   const openIss=S.issues.filter(i=>!['완료','보류'].includes(i.status));
   const ym=thisYM();
   const monthRev=S.reservations.filter(r=>resActive(r)&&r.res_date.slice(0,7)===ym).reduce((s,r)=>s+(+r.amount||0),0);
+  const horizon=addDays(today,7);
+  const unassigned=isMgr()? vis.filter(t=>t.clean_date>=today&&t.clean_date<=horizon&&!effAssignee(t).name&&!['confirmed','skip','done'].includes(taskStatus(t))).length:0;
+  const urgentToday=vis.filter(t=>t.clean_date===today&&t.urgent&&!['confirmed','skip'].includes(taskStatus(t))).length;
+  const holds=vis.filter(t=>t.hold&&t.clean_date>=today&&!['confirmed','skip'].includes(taskStatus(t))).length;
   let html=`
+  ${isMgr()&&(unassigned||urgentToday||holds)?`
+  <section><div class="card" style="border-color:var(--point);background:var(--point-soft)">
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:13.5px;font-weight:700;color:var(--point-deep)">
+      <span>⚠ 운영 확인 필요</span>
+      ${unassigned?`<span>담당 미정 ${unassigned}건 · 7일 내</span>`:''}
+      ${urgentToday?`<span>오늘 긴급 창 ${urgentToday}건</span>`:''}
+      ${holds?`<span>확인 후 진행 ${holds}건</span>`:''}
+      <span class="sp"></span><button class="btn sm" data-nav="board">주간 보드에서 처리 →</button>
+    </div></div></section>`:''}
   <section>
     <div class="kpis">
       <div class="kpi"><div class="k">오늘 청소</div><div class="v num">${todayDone}<span style="font-size:14px;color:var(--faint)"> / ${todayT.length}건</span></div><div class="s">${mdLabel(today)} 기준</div></div>
@@ -1020,6 +1219,180 @@ function vDash(){
   bindTaskCards(); bindIssueCards();
 }
 
+
+/* ==================================================
+   v2 · 주간 운영 보드
+   ================================================== */
+function vBoard(){
+  if(!S.ui.boardMon) S.ui.boardMon=weekMon(todayStr());
+  const mon=S.ui.boardMon;
+  const days=[...Array(7)].map((_,i)=>addDays(mon,i));
+  const today=todayStr();
+  const all=deriveTasks();
+  const warnN=+S.settings.concurrent_warn||3;
+
+  const dayHtml=days.map(d=>{
+    const ts=all.filter(t=>t.clean_date===d);
+    const simul=new Set(ts.map(t=>t.branch_id)).size;
+    const un=ts.filter(t=>!effAssignee(t).name&&!['confirmed','skip','done'].includes(taskStatus(t))).length;
+    const urg=ts.filter(t=>t.urgent&&!['confirmed','skip'].includes(taskStatus(t))).length;
+
+    /* 권역 단위(권역이 없으면 지점 단위) 일괄 배정 칩 */
+    const groups={};
+    ts.forEach(t=>{
+      const rg=bProf(t.branch_id).region;
+      if(rg) groups['r|'+rg]={type:'r', label:rg, region:rg, branch_id:''};
+      else groups['b|'+t.branch_id]={type:'b', label:bName(t.branch_id), region:'', branch_id:t.branch_id};
+    });
+    const chips=Object.values(groups).map(g=>{
+      const a=(S.assignments||[]).find(x=>x.date===d && (g.type==='r' ? (x.region===g.region && !x.branch_id) : x.branch_id===g.branch_id));
+      const nm=a&&a.worker?a.worker:'';
+      const payload=esc(JSON.stringify({date:d, region:g.region, branch_id:g.branch_id, label:g.label, cur:nm}));
+      return `<span class="regchip"><b>${esc(g.label)}</b><span class="nm ${nm?'':'none'}">${nm?esc(nm):'담당 미정'}</span>
+        <button class="btn xs noprint" data-basg="${payload}">배정</button></span>`;
+    }).join('');
+
+    const rows=ts.map(t=>{
+      const r=S.reservations.find(x=>x.id===t.res_id);
+      const stt=taskStatus(t);
+      const eff=effAssignee(t);
+      const left=r
+        ? `<span class="pill line">${SLOT_LABEL[r.slot]||r.slot}</span>
+           <b>${esc(bName(t.branch_id))}</b>
+           <span class="hint">${r.start_t||''}${(r.start_t||r.end_t)?' ~ ':''}${r.end_t||''}${r.res_date!==t.clean_date?' · '+mdLabel(r.res_date)+' 이용분':''}</span>
+           ${t.hold?'<span class="pill hold">확인 후 진행</span>':''}`
+        : `<span class="pill line">수동</span><b>${esc(bName(t.branch_id))}</b>`;
+      const right=`<span class="pill ${t.kind==='mid'?'amber':'line'}">${KIND_LABEL[t.kind]||'청소'}</span>
+           <span>🕐 ${esc(t.window_label)}</span>
+           ${t.urgent&&!['confirmed','skip'].includes(stt)?`<span class="pill urgentp">긴급 · 가능 ${fmtDur(t.availMin)}</span>`:''}
+           ${t.deadline?`<span class="pill dl">~${mdLabel(t.deadline.date)} ${t.deadline.t}</span>`:''}
+           <span class="pill ${stt}">${CLEAN_STATUS[stt]||stt}</span>
+           <span class="assg">👤 ${eff.name?esc(eff.name)+(eff.via?` <span class="pill via">${eff.via}</span>`:''):'<b style="color:var(--point-deep)">미배정</b>'}</span>`;
+      return `<div class="brow"><div class="bl">${left}</div><div class="br" data-task="${esc(t.key)}">${right}</div></div>`;
+    }).join('');
+
+    const nts=(S.notices||[]).filter(n=>n.date===d);
+    const ntHtml=`<div class="ntbox">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:${nts.length?'4px':'0'}">
+        <b style="font-size:13px">📢 필수 확인사항</b><span class="sp"></span>
+        <button class="btn xs noprint" data-ntadd="${d}">＋ 추가</button>
+      </div>
+      ${nts.map(n=>{
+        const rd=readsOf(n.id);
+        return `<div class="nt"><span>•</span><div class="tx">${esc(n.body)}
+            <div class="rd">읽음 ${rd.length}명${rd.length?' · '+rd.map(x=>esc(x.user_name)).join(', '):''}</div></div>
+          <button class="btn xs noprint" data-ntdel="${n.id}" style="color:var(--point-deep)">삭제</button></div>`;
+      }).join('') || `<div class="hint" style="font-size:12.5px">등록된 확인사항이 없습니다. 근무자 홈 상단에 그대로 표시됩니다.</div>`}
+    </div>`;
+
+    return `<div class="bday ${d===today?'today':''}">
+      <div class="bh"><b>${mdLabel(d)}${d===today?' · 오늘':''}</b>
+        <span class="pill line">청소 ${ts.length}건</span>
+        ${simul?`<span class="pill ${simul>=warnN?'urgentp':'gray'}">동시 ${simul}개 지점${simul>=warnN?' · 인력 확인 필요':''}</span>`:''}
+        ${un?`<span class="pill red">미배정 ${un}건</span>`:''}
+        ${urg?`<span class="pill urgentp">긴급 ${urg}건</span>`:''}
+      </div>
+      ${chips?`<div class="regline"><span class="hint" style="font-size:12px">일괄 배정</span>${chips}</div>`:''}
+      ${rows || `<div class="empty" style="margin:10px 14px">예정된 청소가 없습니다.</div>`}
+      ${ntHtml}
+    </div>`;
+  }).join('');
+
+  layout('board', `
+    <div class="card noprint" style="margin-bottom:14px"><div class="hd" style="margin-bottom:0">
+      <button class="btn sm" id="bdPrev">〈 이전 주</button>
+      <b style="font-size:15px">${mdLabel(mon)} ~ ${mdLabel(addDays(mon,6))}</b>
+      <button class="btn sm" id="bdNext">다음 주 〉</button>
+      <button class="btn sm" id="bdToday">이번 주</button>
+      <span class="sp"></span>
+      <button class="btn sm" id="bdPrint">🖨 인쇄·PDF</button>
+      <button class="btn sm" id="bdImg">🖼 이미지 저장</button>
+    </div>
+    <p class="hint" style="margin:8px 0 0">권역(권역이 없으면 지점) 단위로 <b>일괄 배정</b>을 걸어두면 그날 해당 청소 전체에 담당이 자동 적용되고, 카드에서 개별 지정한 담당이 있으면 그쪽이 우선합니다. 인쇄·PDF는 인쇄창에서 "PDF로 저장"을 고르면 되고, 이미지 저장은 단톡방 공유용 PNG를 내려받습니다.</p>
+    </div>
+    <div id="boardCap">${dayHtml}</div>`,
+    `${mdLabel(mon)} 주`);
+  bindBoard(mon);
+}
+function bindBoard(mon){
+  const go=async m=>{
+    S.ui.boardMon=m;
+    const f=m, t=addDays(m,6);
+    const nf=f<S.range.from?f:S.range.from, nt=t>S.range.to?t:S.range.to;
+    if(nf!==S.range.from||nt!==S.range.to) await loadData(nf,nt);
+    render();
+  };
+  $('#bdPrev').onclick=()=>go(addDays(mon,-7));
+  $('#bdNext').onclick=()=>go(addDays(mon,7));
+  $('#bdToday').onclick=()=>go(weekMon(todayStr()));
+  $('#bdPrint').onclick=()=>window.print();
+  $('#bdImg').onclick=boardImage;
+  $$('#boardCap [data-task]').forEach(el=>el.addEventListener('click',()=>{ location.hash='#/task/'+encodeURIComponent(el.dataset.task); }));
+  $$('[data-basg]').forEach(b=>b.onclick=()=>{
+    const g=JSON.parse(b.dataset.basg);
+    modal(`${g.label} · ${mdLabel(g.date)} 일괄 배정`, `
+      <div class="field"><label>담당자</label><select class="sel" id="baW">
+        <option value="">배정 해제</option>
+        ${workerNames().map(n=>`<option ${n===g.cur?'selected':''}>${esc(n)}</option>`).join('')}
+      </select></div>
+      <p class="hint">${g.region?'이 권역의 그날 청소 전체에 적용됩니다.':'이 지점의 그날 청소 전체에 적용됩니다.'} 카드에서 개별 지정한 담당이 있으면 그 설정이 우선합니다.</p>`,
+      `<button class="btn" onclick="closeModal()">취소</button><button class="btn primary" id="baGo">저장</button>`);
+    $('#baGo').onclick=async ()=>{
+      try{
+        const r=await api('/assignments','POST',{date:g.date, region:g.region, branch_id:g.branch_id, worker:$('#baW').value});
+        S.assignments=S.assignments.filter(a=>!(a.date===g.date && (a.region||'')===(g.region||'') && (a.branch_id||'')===(g.branch_id||'')));
+        if(r.assignment) S.assignments.push(r.assignment);
+        closeModal(); toast($('#baW').value?'배정했습니다':'배정을 해제했습니다'); render();
+      }catch(e){ toast(e.message); }
+    };
+  });
+  $$('[data-ntadd]').forEach(b=>b.onclick=()=>{
+    const d=b.dataset.ntadd;
+    modal(`${mdLabel(d)} 필수 확인사항 추가`, `
+      <div class="field"><label>내용</label><textarea class="ta" id="ntB" placeholder="예) 어반홀리 10/5 12시 전 완료 필수 · 분리수거 무단배출 민원 주의"></textarea></div>
+      <p class="hint">등록하면 그날 근무자 홈 상단에 표시되고, 근무자가 "확인했습니다"를 누르면 읽음 명단이 남습니다.</p>`,
+      `<button class="btn" onclick="closeModal()">취소</button><button class="btn primary" id="ntGo">등록</button>`);
+    $('#ntGo').onclick=async ()=>{
+      const txt=$('#ntB').value.trim();
+      if(!txt){ toast('내용을 입력해 주세요'); return; }
+      try{
+        const r=await api('/notices','POST',{date:d, body:txt});
+        S.notices.push(r.notice);
+        closeModal(); toast('등록했습니다 · 근무자 홈 상단에 표시됩니다'); render();
+      }catch(e){ toast(e.message); }
+    };
+  });
+  $$('[data-ntdel]').forEach(b=>b.onclick=async ()=>{
+    if(!await confirm2('이 확인사항을 삭제할까요?')) return;
+    try{
+      await api('/notices/'+b.dataset.ntdel,'DELETE');
+      S.notices=S.notices.filter(n=>n.id!==b.dataset.ntdel);
+      S.notice_reads=S.notice_reads.filter(r=>r.notice_id!==b.dataset.ntdel);
+      toast('삭제했습니다'); render();
+    }catch(e){ toast(e.message); }
+  });
+}
+async function boardImage(){
+  const el=$('#boardCap'); if(!el) return;
+  toast('이미지를 만드는 중입니다...');
+  try{
+    if(!window.html2canvas){
+      await new Promise((res,rej)=>{
+        const sc=document.createElement('script');
+        sc.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+        sc.onload=res; sc.onerror=rej; document.head.appendChild(sc);
+      });
+    }
+    const canvas=await window.html2canvas(el,{scale:2, backgroundColor:'#F4F6F8', useCORS:true});
+    const a=document.createElement('a');
+    a.href=canvas.toDataURL('image/png');
+    a.download=`쏘플_주간배정표_${S.ui.boardMon}.png`;
+    a.click();
+  }catch(e){
+    toast('이미지 모듈을 불러오지 못했습니다. 인쇄·PDF 버튼으로 저장해 주세요.');
+  }
+}
+
 /* ==================================================
    청소관리
    ================================================== */
@@ -1053,14 +1426,35 @@ function vCleanWorker(){
   const overdue=list.filter(t=>t.clean_date<today&&['todo','redo'].includes(taskStatus(t)));
   const todayT=list.filter(t=>t.clean_date===today);
   const next=list.filter(t=>t.clean_date>today&&t.clean_date<=addDays(today,7));
+  const todayN=(S.notices||[]).filter(n=>n.date===today);
   layout('clean', `
     <p class="hint b" style="margin-bottom:16px">담당으로 배정되었거나 미배정 상태인 청소만 보입니다. 카드를 누르면 체크리스트가 열립니다.</p>
+    ${todayN.length?`<section><p class="sect-t">📢 오늘 필수 확인사항 <span class="cnt">${todayN.length}</span></p>
+      <div class="card" style="background:#FFFCF2;border-color:#F3E3AE">
+        ${todayN.map(n=>{
+          const rd=myRead(n.id);
+          return `<div style="display:flex;gap:10px;align-items:flex-start;padding:7px 0">
+            <div style="flex:1;font-size:14px;line-height:1.65">${esc(n.body)}</div>
+            <button class="btn xs ${rd?'':'primary'}" data-ntread="${n.id}" ${rd?'disabled':''}>${rd?'확인 완료 ✓':'확인했습니다'}</button>
+          </div>`;
+        }).join('')}
+      </div></section>`:''}
     ${overdue.length?`<section><p class="sect-t" style="color:var(--point-deep)">⏰ 지난 미완료 <span class="cnt">${overdue.length}</span></p><div class="tasklist">${overdue.map(t=>taskCard(t)).join('')}</div></section>`:''}
     <section><p class="sect-t">오늘 <span class="cnt">${todayT.length}</span></p>
       ${todayT.length?`<div class="tasklist">${todayT.map(t=>taskCard(t)).join('')}</div>`:`<div class="empty">오늘 배정된 청소가 없습니다.</div>`}</section>
     ${next.length?`<section><p class="sect-t">다가오는 일정(7일)</p><div class="tasklist">${next.map(t=>taskCard(t)).join('')}</div></section>`:''}
   `, '내 청소 일정');
-  bindTaskCards();
+  bindTaskCards(); bindNoticeReads();
+}
+function bindNoticeReads(){
+  $$('[data-ntread]').forEach(b=>b.onclick=async ()=>{
+    try{
+      await api('/notices/'+b.dataset.ntread+'/read','POST',{});
+      S.notice_reads=S.notice_reads.filter(r=>!(r.notice_id===b.dataset.ntread&&r.user_id===S.user.id));
+      S.notice_reads.push({notice_id:b.dataset.ntread, user_id:S.user.id, user_name:S.user.name, read_at:new Date().toISOString()});
+      toast('확인 처리했습니다'); render();
+    }catch(e){ toast(e.message); }
+  });
 }
 
 function cleanTabSchedule(canEdit){
@@ -1206,7 +1600,7 @@ function cleanTabRes(){
       brs.map(b=>{
         return '<td>'+['day','night','allday'].map(sl=>{
           const r=map[`${b.id}|${ds}|${sl}`];
-          const cls=r?(r.source==='excel'?'xls':'on'):'';
+          const cls=r?((r.source==='excel'||r.source==='sync')?'xls':'on'):'';
           return `<button class="slotbtn ${sl==='allday'?'all ':''}${cls}" data-slot="${b.id}|${ds}|${sl}" ${r?`data-rid="${r.id}" data-src="${r.source}"`:''} title="${SLOT_LABEL[sl]}">${SLOT_SHORT[sl]}</button>`;
         }).join('')+'</td>';
       }).join('')+'</tr>';
@@ -1218,9 +1612,10 @@ function cleanTabRes(){
     <button class="btn sm" id="rgNext">〉</button>
     <span class="sp"></span>
     <button class="btn sm" id="rgAdd">＋ 상세 예약 추가</button>
+    ${S.mode==='api'&&S.hostBound&&isMgr()?`<button class="btn sm" id="rgSync">↻ 지금 동기화</button>`:''}
   </div>
   <p class="hint" style="margin:0">칸을 누르면 <b>낮·밤·올데이</b> 예약을 바로 넣고 뺄 수 있습니다(검정 = 직접 등록).
-  <span style="color:var(--point-deep);font-weight:700">빨간색은 엑셀 업로드분</span>으로, 수정은 매출·손익 탭에서 해당 월을 다시 업로드하면 됩니다. 예약이 생기면 청소 일정이 자동으로 만들어집니다.</p></div>
+  <span style="color:var(--point-deep);font-weight:700">빨간색은 엑셀 업로드·호스트 동기화분</span>입니다 — 내용 수정은 원본(엑셀 재업로드·호스트 페이지)에서 하고, 빨간 칸을 누르면 <b>"확인 후 진행"</b> 표시를 걸 수 있어요. 예약이 생기면 청소 일정이 자동으로 만들어집니다.</p></div>
   <div class="resgrid"><table>
     <thead><tr><th style="text-align:left;padding-left:10px">날짜</th>${brs.map(b=>`<th>${esc(b.name.replace('신촌 ','').replace('건대 ','건대 '))}</th>`).join('')}</tr></thead>
     <tbody>${rows}</tbody>
@@ -1233,7 +1628,22 @@ function bindResGrid(){
     bt.onclick=async ()=>{
       const [bid,ds,sl]=bt.dataset.slot.split('|');
       if(bt.dataset.rid){
-        if(bt.dataset.src==='excel'){ toast('엑셀 업로드분은 여기서 수정할 수 없습니다'); return; }
+        if(bt.dataset.src==='excel'||bt.dataset.src==='sync'){
+          const r0=S.reservations.find(x=>x.id===bt.dataset.rid);
+          if(!r0) return;
+          modal(`${bName(bid)} · ${mdLabel(ds)} ${SLOT_LABEL[sl]} — 확인 필요 표시`, `
+            <p class="hint" style="margin:0 0 10px">${bt.dataset.src==='sync'?'호스트에서 동기화된 예약':'엑셀로 업로드된 예약'}이라 내용은 원본에서 수정하면 되고, 여기서는 <b>"확인 후 진행"</b> 표시만 걸 수 있습니다. 표시를 걸면 해당 청소 체크리스트에 "관리자 확인 전 시작 금지" 안내가 뜹니다.</p>
+            <div class="field"><label>확인 메모 (비우고 저장하면 표시 해제)</label><textarea class="ta" id="riTx" placeholder="예) 퇴실이 12시인지 고객 통화로 확인 필요">${esc(typeof r0.issue==='string'?(r0.issue||''):'')}</textarea></div>`,
+            `<button class="btn" onclick="closeModal()">취소</button><button class="btn primary" id="riGo">저장</button>`);
+          $('#riGo').onclick=async ()=>{
+            try{
+              const rr=await api('/resissue','POST',{res_id:r0.id, issue:$('#riTx').value.trim()});
+              Object.assign(r0, rr.reservation);
+              closeModal(); toast($('#riTx').value.trim()?'확인 필요 표시를 걸었습니다':'표시를 해제했습니다'); render();
+            }catch(e){ toast(e.message); }
+          };
+          return;
+        }
         if(!await confirm2(`${bName(bid)} · ${mdLabel(ds)} ${SLOT_LABEL[sl]} 예약을 삭제할까요?<br><span class="hint">연결된 청소 일정도 함께 사라집니다.</span>`)) return;
         try{ await api('/reservations/'+bt.dataset.rid,'DELETE'); S.reservations=S.reservations.filter(r=>r.id!==bt.dataset.rid); toast('삭제했습니다'); render(); }
         catch(e){ toast(e.message); }
@@ -1246,6 +1656,16 @@ function bindResGrid(){
       }
     };
   });
+  const rgs=$('#rgSync');
+  if(rgs) rgs.onclick=async ()=>{
+    rgs.disabled=true;
+    try{
+      const r=await api('/sync','POST',{});
+      await loadData(S.range.from, S.range.to);
+      toast(`동기화 완료 · 추가 ${r.added} · 변경 ${r.updated} · 제거 ${r.removed}건`); render();
+    }catch(e){ toast(e.message); }
+    finally{ rgs.disabled=false; }
+  };
   $('#rgAdd').onclick=()=>{
     modal('상세 예약 추가', `
       <div class="row2">
@@ -1353,7 +1773,9 @@ function vTask(key){
   const t=deriveTasks().find(x=>x.key===key);
   const c=cleanRec(key);
   if(!t&&!c){ layout('task', `<div class="empty">작업을 찾을 수 없습니다. 예약이 삭제되었을 수 있어요.</div><button class="btn" onclick="history.back()" style="margin-top:12px">돌아가기</button>`); return; }
-  const info=t||{key, branch_id:c.branch_id, clean_date:c.clean_date, kind:c.kind||'etc', window_label:c.window_label||'', after_label:'수동 등록', skipAllowed:false};
+  const info=t||{key, branch_id:c.branch_id, clean_date:c.clean_date, kind:c.kind||'etc', window_label:c.window_label||'', after_label:'수동 등록', skipAllowed:false, urgent:false, deadline:null, hold:false, issue_text:'', availMin:null};
+  const prof=bProf(info.branch_id);
+  const eff=effAssignee(info);
   const items=itemsFor(info.branch_id, info.kind);
   const checks=Object.assign({}, c&&c.checks||{});
   const stt=c?c.status:'todo';
@@ -1368,14 +1790,19 @@ function vTask(key){
         <b style="font-size:17px">${esc(bName(info.branch_id))}</b>
         <span class="pill ${info.kind==='mid'?'amber':'line'}">${KIND_LABEL[info.kind]}</span>
         <span class="pill ${stt}">${CLEAN_STATUS[stt]}</span>
+        ${info.urgent&&!locked?`<span class="pill urgentp">긴급 · 가능 ${fmtDur(info.availMin)} · 현장 대기</span>`:''}
+        ${info.deadline?`<span class="pill dl">~${mdLabel(info.deadline.date)} ${info.deadline.t}까지</span>`:''}
+        ${info.hold&&!locked?`<span class="pill hold">확인 후 진행</span>`:''}
       </div>
       <div class="hint" style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap">
         <span>📅 ${mdLabel(info.clean_date)}</span><span>🕐 ${esc(info.window_label)}</span><span>${esc(info.after_label)}</span>
-        <span>👤 ${esc((c&&c.assignee)||'미배정')}</span>
+        <span>👤 ${eff.name?esc(eff.name)+(eff.via?` (${eff.via})`:''):'미배정'}</span>
       </div>
       <div class="progress" style="margin-top:12px"><i id="tkBar" style="width:${p0.p}%"></i></div>
       <div class="hint"><b id="tkCnt" class="num">${p0.n}</b> / ${items.length} 항목 체크</div>
     </div>
+    ${info.hold&&!locked?`<div class="fb"><b>예약 확인 후 진행</b>${isMgr()&&info.issue_text?esc(info.issue_text):'관리자가 이 예약을 확인하는 중입니다. 확인 완료 안내를 받은 뒤 시작해 주세요.'}</div>`:''}
+    ${prof.notes?`<div class="card" style="margin-bottom:12px;background:#FFFCF2"><b style="font-size:13.5px">📌 지점 특이규칙</b><div class="hint" style="margin-top:6px;white-space:pre-line;line-height:1.7">${esc(prof.notes)}</div></div>`:''}
     ${stt==='redo'&&c.feedback?`<div class="fb"><b>관리자 보완 요청</b>${esc(c.feedback)}</div>`:''}
     ${stt==='confirmed'?`<div class="fb okfb"><b>확인 완료된 청소입니다</b>${c.feedback?esc(c.feedback):'수고하셨습니다!'}</div>`:''}
     ${info.skipAllowed&&!locked?`<div class="hint b" style="margin-bottom:12px">같은 고객이 낮·밤을 이어서 이용합니다. 중간 정리는 상황에 따라 <b>생략</b>할 수 있어요.
@@ -1769,6 +2196,11 @@ function costDraft(ym){
   }
   return S.ui.costDraft;
 }
+function laborOf(ym,bid){
+  return S.cleanings
+    .filter(c=>c.branch_id===bid && (c.clean_date||'').slice(0,7)===ym && ['done','confirmed'].includes(c.status))
+    .reduce((sum,c)=>sum+rateOf(c.submitted_by||c.assignee||''),0);
+}
 function kpiTabCost(ym){
   const draft=costDraft(ym);
   const brs=activeBranches();
@@ -1777,9 +2209,10 @@ function kpiTabCost(ym){
     const rev=rs.reduce((s,r)=>s+(+r.amount||0),0);
     const d=draft[b.id];
     const fee=Math.round(rev*(+d.fee_pct||0)/100);
-    const cost=COST_FIELDS.reduce((s,[k])=>s+(+d[k]||0),0)+fee;
+    const labor=laborOf(ym,b.id);
+    const cost=COST_FIELDS.reduce((s,[k])=>s+(+d[k]||0),0)+fee+labor;
     const profit=rev-cost;
-    return {b,rev,d,fee,cost,profit};
+    return {b,rev,d,fee,labor,cost,profit};
   });
   const T=rows.reduce((a,x)=>({rev:a.rev+x.rev,cost:a.cost+x.cost,profit:a.profit+x.profit}),{rev:0,cost:0,profit:0});
   return `
@@ -1787,23 +2220,24 @@ function kpiTabCost(ym){
     <div class="hd"><h3>${ymLabel(ym)} 지점별 손익</h3><span class="sp"></span>
       <button class="btn sm" id="csPrev">전월 비용 불러오기</button>
       <button class="btn primary sm" id="csSave">저장</button></div>
-    <p class="hint" style="margin:0 0 12px">비용을 입력하면 영업이익이 바로 계산됩니다. 예약채널 수수료는 <b>%</b>로 입력하면 해당 월 매출 기준으로 자동 계산됩니다. 값 입력 후 칸을 벗어나면 반영돼요.</p>
+    <p class="hint" style="margin:0 0 12px">비용을 입력하면 영업이익이 바로 계산됩니다. 예약채널 수수료는 <b>%</b>로 입력하면 해당 월 매출 기준으로 자동 계산돼요. <b>인건비(자동)</b>는 그 달 확인완료·제출완료된 청소 건수에 계정별 건당 단가(기본 ${fmt(DEFAULT_RATE)}원, 설정 → 계정 관리에서 수정)를 곱해 자동 집계되며, 비용 합계에 포함됩니다.</p>
     <div class="tblwrap" style="border:0"><table class="tbl" style="min-width:900px">
       <thead><tr><th>지점</th><th class="r">매출</th>
         ${COST_FIELDS.map(([k,l])=>`<th class="r">${l}</th>`).join('')}
-        <th class="r">채널수수료</th><th class="r">비용 합계</th><th class="r">영업이익</th><th class="r">이익률</th></tr></thead>
+        <th class="r">인건비(자동)</th><th class="r">채널수수료</th><th class="r">비용 합계</th><th class="r">영업이익</th><th class="r">이익률</th></tr></thead>
       <tbody>
       ${rows.map(x=>`<tr>
         <td style="font-weight:700;white-space:nowrap">${esc(x.b.name)}</td>
         <td class="r num">${fmt(x.rev)}</td>
         ${COST_FIELDS.map(([k])=>`<td class="r"><input type="number" class="inp mini" data-cost="${x.b.id}|${k}" value="${x.d[k]||''}" placeholder="0"></td>`).join('')}
+        <td class="r num hint" title="확인완료·제출완료 청소 건수 × 계정별 건당 단가">${x.labor?fmt(x.labor):'-'}</td>
         <td class="r" style="white-space:nowrap"><input type="number" class="inp mini" style="min-width:56px;width:56px" data-cost="${x.b.id}|fee_pct" value="${x.d.fee_pct||''}" placeholder="%" step="0.1">%
           <div class="hint num">${x.fee?fmt(x.fee)+'원':''}</div></td>
         <td class="r num">${fmt(x.cost)}</td>
         <td class="r num" style="font-weight:800;color:${x.profit>=0?'var(--green)':'var(--point-deep)'}">${fmt(x.profit)}</td>
         <td class="r num">${x.rev?pct(x.profit/x.rev):'-'}</td></tr>`).join('')}
       <tr class="sum"><td>합계</td><td class="r num">${fmt(T.rev)}</td>
-        <td class="r num" colspan="${COST_FIELDS.length+1}" style="font-weight:600;color:var(--sub)">비용 상세는 지점별 입력</td>
+        <td class="r num" colspan="${COST_FIELDS.length+2}" style="font-weight:600;color:var(--sub)">비용 상세는 지점별 입력</td>
         <td class="r num">${fmt(T.cost)}</td>
         <td class="r num" style="color:${T.profit>=0?'var(--green)':'var(--point-deep)'}">${fmt(T.profit)}</td>
         <td class="r num">${T.rev?pct(T.profit/T.rev):'-'}</td></tr>
@@ -2026,11 +2460,13 @@ function vSet(){
 function setTabBranch(){
   return `<div class="card">
     <div class="hd"><h3>직영 지점</h3><span class="sp"></span><button class="btn sm" id="sbAdd">＋ 지점 추가</button></div>
-    <p class="hint" style="margin:0 0 12px">별칭은 엑셀 업로드 때 지점 이름을 맞추는 데 쓰입니다. 쉼표(,)로 여러 개 등록할 수 있어요.</p>
+    <p class="hint" style="margin:0 0 12px">지점마다 권역·운영시간·청소 규칙·기본 담당을 따로 둘 수 있습니다. 별칭과 지점 코드는 엑셀 업로드·호스트 동기화 때 지점을 맞추는 데 쓰여요.</p>
     <div class="tblwrap" style="border:0"><table class="tbl">
-      <thead><tr><th>지점명</th><th>별칭</th><th class="c">상태</th><th class="c">관리</th></tr></thead>
+      <thead><tr><th>지점명</th><th>권역</th><th>기본 담당</th><th>별칭</th><th class="c">상태</th><th class="c">관리</th></tr></thead>
       <tbody>${S.branches.sort((a,b)=>(a.sort||0)-(b.sort||0)).map(b=>`<tr>
         <td style="font-weight:700">${esc(b.name)}</td>
+        <td class="hint">${esc(bProf(b.id).region||'-')}</td>
+        <td class="hint">${esc(bProf(b.id).default_worker||'-')}</td>
         <td class="hint">${esc(b.alias||'-')}</td>
         <td class="c">${b.active!==0?'<span class="pill green">운영중</span>':'<span class="pill gray">중지</span>'}</td>
         <td class="c"><button class="btn xs" data-sbe="${b.id}">수정</button></td></tr>`).join('')}</tbody>
@@ -2038,9 +2474,39 @@ function setTabBranch(){
 }
 function bindSetBranch(){
   const open=(b)=>{
+    const pr=b?bProf(b.id):null;
+    const raw=b?(profMap()[b.id]||{}):{};
+    const ov=b?(parseSlots(raw.slots_json)||{}):{};
+    const slotRow=(k,l)=>{
+      const eff=(pr?pr.times[k]:(S.settings.times[k]||['','']));
+      const on=!!ov[k];
+      return `<div class="field"><label>${l} 운영시간 <span class="hint" style="font-weight:400">(비우면 전역 ${eff[0]}~${eff[1]} 사용)</span></label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="time" class="inp" id="pf_${k}_0" value="${on?ov[k][0]:''}"> <span class="hint">~</span>
+          <input type="time" class="inp" id="pf_${k}_1" value="${on?ov[k][1]:''}">
+        </div></div>`;
+    };
     modal(b?'지점 수정':'지점 추가', `
-      <div class="field"><label>지점명</label><input class="inp" id="sbNm" value="${b?esc(b.name):''}" placeholder="예) 신촌 어반홀리"></div>
-      <div class="field"><label>별칭(엑셀 매칭용, 쉼표 구분)</label><input class="inp" id="sbAl" value="${b?esc(b.alias||''):''}" placeholder="예) 어반홀리,urban"></div>
+      <div class="row2">
+        <div class="field"><label>지점명</label><input class="inp" id="sbNm" value="${b?esc(b.name):''}" placeholder="예) 신촌 어반홀리"></div>
+        <div class="field"><label>권역</label><input class="inp" id="pfRg" value="${b?esc(pr.region):''}" placeholder="예) 신촌"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>지점 코드(S코드)</label><input class="inp" id="pfSc" value="${b?esc(pr.scode):''}" placeholder="예) S-0012"></div>
+        <div class="field"><label>기본 담당자</label><select class="sel" id="pfDw"><option value="">없음</option>${workerNames().map(n=>`<option ${b&&pr.default_worker===n?'selected':''}>${esc(n)}</option>`).join('')}</select></div>
+      </div>
+      <div class="field"><label>별칭(엑셀·동기화 매칭용, 쉼표 구분)</label><input class="inp" id="sbAl" value="${b?esc(b.alias||''):''}" placeholder="예) 어반홀리,urban"></div>
+      <p class="hint" style="margin:-4px 0 12px">지점 코드는 호스트 예약 동기화에서 지점을 맞추는 가장 정확한 기준입니다. 호스트 페이지에 적힌 코드를 그대로 넣어 두면 이름이 달라도 바로 연결돼요.</p>
+      <div class="row2">
+        <div class="field"><label>표준 청소 소요(분)</label><input type="number" class="inp" id="pfStd" value="${b&&raw.std_minutes!=null&&raw.std_minutes!==''?raw.std_minutes:''}" placeholder="전역 ${+S.settings.std_minutes||120}"></div>
+        <div class="field"><label>입실 전 완료 버퍼(분)</label><input type="number" class="inp" id="pfBuf" value="${b&&raw.buffer_min!=null&&raw.buffer_min!==''?raw.buffer_min:''}" placeholder="전역 ${+S.settings.clean_before_min||30}"></div>
+      </div>
+      <div class="field"><label>중간 정리 마감 <span class="hint" style="font-weight:400">(비우면 전역 ${S.settings.mid_deadline})</span></label><input type="time" class="inp" id="pfMid" value="${b&&raw.midday_deadline?raw.midday_deadline:''}"></div>
+      ${slotRow('day','낮타임')}
+      ${slotRow('night','밤타임')}
+      ${slotRow('allday','올데이')}
+      <div class="field"><label>지점 특이규칙 <span class="hint" style="font-weight:400">(이 지점 청소 체크리스트 위에 그대로 표시)</span></label>
+        <textarea class="ta" id="pfNt" placeholder="예) 분리수거는 건물 뒤편 전용 공간만 사용&#10;연박(동일 고객 연속) 시 침구 교체 생략 가능">${b?esc(pr.notes):''}</textarea></div>
       ${b?`<div class="field"><label>상태</label><select class="sel" id="sbAc"><option value="1" ${b.active!==0?'selected':''}>운영중</option><option value="0" ${b.active===0?'selected':''}>운영 중지</option></select></div>`:''}`,
       `<button class="btn" onclick="closeModal()">취소</button><button class="btn primary" id="sbGo">${b?'저장':'추가'}</button>`);
     $('#sbGo').onclick=async ()=>{
@@ -2048,9 +2514,23 @@ function bindSetBranch(){
       if(!name){ toast('지점명을 입력해 주세요'); return; }
       const payload={name, alias:$('#sbAl').value.trim()};
       if(b) payload.active=+$('#sbAc').value;
+      const slots={};
+      ['day','night','allday'].forEach(k=>{ const a=$(`#pf_${k}_0`).value, z=$(`#pf_${k}_1`).value; if(a&&z) slots[k]=[a,z]; });
+      const prof={
+        region:$('#pfRg').value.trim(), scode:$('#pfSc').value.trim(),
+        default_worker:$('#pfDw').value,
+        std_minutes:$('#pfStd').value===''?null:+$('#pfStd').value,
+        buffer_min:$('#pfBuf').value===''?null:+$('#pfBuf').value,
+        midday_deadline:$('#pfMid').value||null,
+        notes:$('#pfNt').value.trim(),
+        slots_json:Object.keys(slots).length?JSON.stringify(slots):''
+      };
       try{
-        if(b){ const r=await api('/branches/'+b.id,'PATCH',payload); Object.assign(b,r.branch); }
-        else{ const r=await api('/branches','POST',Object.assign({sort:S.branches.length+1,active:1},payload)); S.branches.push(r.branch); }
+        let bid;
+        if(b){ const r=await api('/branches/'+b.id,'PATCH',payload); Object.assign(b,r.branch); bid=b.id; }
+        else{ const r=await api('/branches','POST',Object.assign({sort:S.branches.length+1,active:1},payload)); S.branches.push(r.branch); bid=r.branch.id; }
+        const pr2=await api('/profiles/'+bid,'POST',prof);
+        S.profiles=S.profiles.filter(x=>x.branch_id!==bid); S.profiles.push(pr2.profile);
         closeModal(); toast('저장했습니다'); render();
       }catch(e){ toast(e.message); }
     };
@@ -2071,6 +2551,11 @@ function setTabTimes(){
       <div class="field"><label>다음 입실 전 청소 완료(분)</label><input type="number" class="inp" id="tmBuf" value="${S.settings.clean_before_min}"></div>
       <div class="field"><label>중간 정리 마감 시각</label><input type="time" class="inp" id="tmMid" value="${S.settings.mid_deadline}"></div>
     </div>
+    <div class="row2">
+      <div class="field"><label>표준 청소 소요(분) · 긴급 기준</label><input type="number" class="inp" id="tmStd" value="${+S.settings.std_minutes||120}"></div>
+      <div class="field"><label>동시 지점 경고 기준(곳)</label><input type="number" class="inp" id="tmCw" value="${+S.settings.concurrent_warn||3}"></div>
+    </div>
+    <p class="hint" style="margin:-6px 0 14px">가용 시간이 표준 소요보다 짧으면 <b>긴급</b>으로, 같은 날 동시 진행 지점이 기준 이상이면 주간 보드에 <b>인력 확인 필요</b>로 표시됩니다. 지점별 값은 설정 → 직영 지점에서 따로 둘 수 있어요.</p>
     <div class="field"><label>중간 정리 항목(줄바꿈 구분)</label><textarea class="ta" id="tmQuick">${esc((S.settings.quick_items||[]).join('\n'))}</textarea></div>
     <button class="btn primary" id="tmSave">저장</button>
   </div>`;
@@ -2082,6 +2567,8 @@ function bindSetTimes(){
       times:{day:[g('day',0),g('day',1)], night:[g('night',0),g('night',1)], allday:[g('allday',0),g('allday',1)]},
       clean_before_min:+$('#tmBuf').value||30,
       mid_deadline:$('#tmMid').value||'18:30',
+      std_minutes:+$('#tmStd').value||120,
+      concurrent_warn:+$('#tmCw').value||3,
       quick_items:$('#tmQuick').value.split('\n').map(s=>s.trim()).filter(Boolean)
     };
     try{ await api('/settings','POST',{settings}); S.settings=settings; toast('저장했습니다. 청소 일정에 바로 반영됩니다.'); render(); }
@@ -2092,13 +2579,14 @@ function setTabUsers(){
   if(S.user.role!=='owner') return `<div class="empty">계정 관리는 대표 계정에서만 가능합니다.</div>`;
   return `<div class="card">
     <div class="hd"><h3>계정 관리</h3><span class="sp"></span><button class="btn sm" id="usAdd">＋ 계정 추가</button></div>
-    <p class="hint" style="margin:0 0 12px">청소근무자는 배정된 지점의 청소와 시설 신고만 볼 수 있고, 예약자 이름·연락처·금액은 보이지 않습니다.</p>
+    <p class="hint" style="margin:0 0 12px">청소근무자는 배정된 지점의 청소와 시설 신고만 볼 수 있고, 예약자 이름·연락처·금액은 보이지 않습니다. <b>청소 단가</b>는 손익의 인건비 자동 계산에 쓰입니다(기본 ${fmt(DEFAULT_RATE)}원/건).</p>
     <div class="tblwrap" style="border:0"><table class="tbl">
-      <thead><tr><th>이름</th><th>아이디</th><th>역할</th><th>담당 지점</th><th class="c">상태</th><th class="c">관리</th></tr></thead>
+      <thead><tr><th>이름</th><th>아이디</th><th>역할</th><th>담당 지점</th><th class="r">청소 단가</th><th class="c">상태</th><th class="c">관리</th></tr></thead>
       <tbody>${S.users.map(u=>`<tr>
         <td style="font-weight:700">${esc(u.name)}</td><td class="hint">${esc(u.username)}</td>
         <td>${ROLE_LABEL[u.role]||u.role}</td>
         <td class="hint">${u.role==='worker'&&u.branch_ids&&u.branch_ids.length?u.branch_ids.map(bName).map(esc).join(', '):'전체'}</td>
+        <td class="r num hint">${fmt(rateOf(u.name))}원</td>
         <td class="c">${u.active!==0?'<span class="pill green">활성</span>':'<span class="pill gray">중지</span>'}</td>
         <td class="c"><button class="btn xs" data-use="${u.id}">수정</button></td></tr>`).join('')}</tbody>
     </table></div></div>`;
@@ -2119,6 +2607,7 @@ function bindSetUsers(){
         <div style="display:flex;flex-direction:column;gap:5px">
         ${activeBranches().map(b=>`<label style="display:flex;gap:8px;align-items:center;font-size:14px">
           <input type="checkbox" data-usb="${b.id}" ${u&&u.branch_ids&&u.branch_ids.includes(b.id)?'checked':''}> ${esc(b.name)}</label>`).join('')}</div></div>
+      <div class="field"><label>청소 건당 단가(원)</label><input type="number" class="inp" id="usRt" value="${u?(((S.rates||[]).find(x=>x.user_id===u.id)||{}).rate??DEFAULT_RATE):DEFAULT_RATE}"></div>
       ${u?`<div class="field"><label>상태</label><select class="sel" id="usAc"><option value="1" ${u.active!==0?'selected':''}>활성</option><option value="0" ${u.active===0?'selected':''}>중지(로그인 불가)</option></select></div>`:''}`,
       `<button class="btn" onclick="closeModal()">취소</button><button class="btn primary" id="usGo">${u?'저장':'추가'}</button>`);
     $('#usGo').onclick=async ()=>{
@@ -2126,16 +2615,22 @@ function bindSetUsers(){
       const branch_ids=$$('[data-usb]').filter(c=>c.checked).map(c=>c.dataset.usb);
       if(!name){ toast('이름을 입력해 주세요'); return; }
       try{
+        let targetId;
         if(u){
           const payload={name, role:$('#usRl').value, branch_ids, active:+$('#usAc').value};
           if(pw) payload.password=pw;
-          const r=await api('/users/'+u.id,'PATCH',payload); Object.assign(u,r.user);
+          const r=await api('/users/'+u.id,'PATCH',payload); Object.assign(u,r.user); targetId=u.id;
         }else{
           const username=$('#usId').value.trim();
           if(!username||!pw){ toast('아이디와 비밀번호를 입력해 주세요'); return; }
           const r=await api('/users','POST',{name,username,password:pw,role:$('#usRl').value,branch_ids});
-          S.users.push(r.user);
+          S.users.push(r.user); targetId=r.user.id;
         }
+        const rtv=Math.max(0, Math.round(+$('#usRt').value||0)) || DEFAULT_RATE;
+        try{
+          await api('/rates','POST',{user_id:targetId, rate:rtv});
+          S.rates=(S.rates||[]).filter(x=>x.user_id!==targetId); S.rates.push({user_id:targetId, rate:rtv});
+        }catch(e2){ /* v2 테이블 미생성 등 — 계정 저장은 유지 */ }
         closeModal(); toast('저장했습니다'); render();
       }catch(e){ toast(e.message); }
     };
@@ -2165,9 +2660,25 @@ function setTabData(){
     </div>
   </div>`:''}
   <div class="card">
-    <h3>호스트 페이지 자동 수집은요?</h3>
-    <p class="hint" style="margin:0;line-height:1.7">host.jssystems.kr 예약을 자동으로 가져오는 건 별도 서버 작업(같은 Cloudflare 계정 안에서 D1을 직접 읽는 동기화)이 필요해서 다음 단계로 잡아 두는 게 안전합니다.
-    아이디·비밀번호를 외부에 맡기는 방식은 권하지 않아요. 지금은 <b>매출·손익 → 예약 엑셀 업로드</b>에 월 1회 파일만 올리면 10초 안에 끝나도록 만들어 두었습니다.</p>
+    <h3>호스트 예약 동기화 (host.jssystems.kr)</h3>
+    ${apiOn?`
+      <p style="margin:6px 0 10px;font-size:14px">
+        ${S.hostBound
+          ?'<span class="pill green">HOSTDB 연결됨</span> 같은 Cloudflare 계정의 호스트 예약 DB(ssople-host)를 직접 읽어 옵니다. 아이디·비밀번호가 필요 없고, 호스트 DB에는 아무것도 쓰지 않습니다.'
+          :'<span class="pill amber">HOSTDB 미연결</span> 아래 안내대로 바인딩 하나만 추가하면 버튼 한 번으로 예약이 들어옵니다.'}
+      </p>
+      ${S.v2ok===false?`<p class="hint" style="color:var(--point-deep);font-weight:700;margin:0 0 10px">먼저 D1 Console에서 upgrade_v2.sql을 1회 실행해 주세요. (새 기능 테이블 생성)</p>`:''}
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+        <button class="btn primary sm" id="sdSync">지금 동기화</button>
+        ${S.lastSync?`<span class="hint">마지막 동기화 ${new Date(S.lastSync.ran_at).toLocaleString('ko-KR')} · 추가 ${S.lastSync.added??0} · 변경 ${S.lastSync.updated??0} · 제거 ${S.lastSync.removed??0}건${S.lastSync.message?' · '+esc(S.lastSync.message):''}</span>`:`<span class="hint">아직 동기화 기록이 없습니다.</span>`}
+      </div>
+      <p class="hint" style="margin:0;line-height:1.75">관리자가 접속할 때 마지막 동기화가 12시간을 넘었으면 자동으로 한 번 돌아갑니다. 오늘 기준 <b>35일 전 ~ 90일 후</b> 예약을 맞추고, 호스트에서 취소된 예약은 여기서도 사라집니다. 호스트에서 넘어온 예약은 달력에 빨간색으로 표시되고, 매출·손익에도 그대로 집계돼요.</p>
+      ${!S.hostBound?`<div class="fb" style="margin-top:12px"><b>HOSTDB 연결 방법 (최초 1회 · 약 2분)</b>
+        ① Cloudflare Pages → 이 프로젝트 → Settings → <b>Bindings</b> → Add → <b>D1 database</b><br>
+        ② Variable name <b>HOSTDB</b> / D1 database <b>ssople-host</b> 선택 후 저장<br>
+        ③ Deployments → 최신 배포 → <b>Retry deployment</b> → 사이트 새로고침<br>
+        <span class="hint">읽기 전용 용도로만 사용하며, 기존 호스트 서비스에는 영향이 없습니다.</span></div>`:''}
+    `:`<p class="hint" style="margin:0;line-height:1.7">데모 모드에서는 동작하지 않습니다. 실제 배포 후 같은 Cloudflare 계정의 <b>ssople-host</b> D1을 <b>HOSTDB</b>로 연결하면, 아이디·비밀번호 없이 예약이 자동으로 들어옵니다.</p>`}
   </div>`;
 }
 function bindSetData(){
@@ -2205,6 +2716,28 @@ function bindSetData(){
     localStorage.removeItem(DEMO_KEY); localStorage.removeItem('spms_token');
     location.reload();
   };
+  const sy=$('#sdSync');
+  if(sy) sy.onclick=async ()=>{
+    sy.disabled=true; sy.textContent='동기화 중...';
+    try{
+      const r=await api('/sync','POST',{});
+      S.lastSync={ran_at:r.ran_at, added:r.added, updated:r.updated, removed:r.removed, skipped:r.skipped, message:''};
+      await loadData(S.range.from, S.range.to);
+      if(r.unmatched && r.unmatched.length){
+        modal('동기화 완료 · 확인이 필요한 지점', `
+          <p style="font-size:14px;margin:0 0 10px">추가 ${r.added} · 변경 ${r.updated} · 제거 ${r.removed}건을 반영했습니다.</p>
+          <p style="font-size:14px;margin:0 0 6px">아래 지점은 이름을 맞추지 못해 건너뛰었어요.</p>
+          <p style="font-weight:700;margin:0 0 10px">${r.unmatched.map(esc).join(', ')}</p>
+          <p class="hint" style="margin:0">설정 → 직영 지점에서 해당 지점의 <b>지점 코드(S코드)</b> 또는 <b>별칭</b>에 위 이름(코드)을 그대로 넣어 두면 다음 동기화부터 자동으로 들어옵니다.</p>`,
+          `<button class="btn primary" onclick="closeModal();render()">확인</button>`);
+      }else{
+        toast(`동기화 완료 · 추가 ${r.added} · 변경 ${r.updated} · 제거 ${r.removed}건`); render();
+      }
+    }catch(e){
+      modal('동기화 안내', `<p style="font-size:14px;line-height:1.85;margin:0">${esc(e.message)}</p>`,
+        `<button class="btn primary" onclick="closeModal()">확인</button>`);
+    }finally{ sy.disabled=false; sy.textContent='지금 동기화'; }
+  };
 }
 function vMe(){
   const u=S.user;
@@ -2232,6 +2765,7 @@ function render(){
   const r=S.user.role;
   const allow={
     dash:['owner','manager','facility'],
+    board:['owner','manager'],
     clean:['owner','manager','facility','worker'],
     task:['owner','manager','facility','worker'],
     fac:['owner','manager','facility','worker'],
@@ -2243,6 +2777,7 @@ function render(){
   const p=allow[page]&&allow[page].includes(r)?page:defaultRoute().slice(2);
   if(p!==page){ location.hash='#/'+p; return; }
   if(page==='dash') vDash();
+  else if(page==='board') vBoard();
   else if(page==='clean') vClean();
   else if(page==='task') vTask(decodeURIComponent(arg));
   else if(page==='fac') vFac();

@@ -1,5 +1,5 @@
 /* =====================================================================
-   쏘플 공간관리 시스템 — 서버 API (Cloudflare Pages Functions + D1)
+   쏘플 공간관리 시스템 v2 — 서버 API (Cloudflare Pages Functions + D1)
    ---------------------------------------------------------------------
    · 이 파일은 /api/* 경로의 모든 요청을 처리합니다.
    · Cloudflare Pages 설정에서 D1 데이터베이스를 변수 이름 "DB"로
@@ -130,7 +130,7 @@ export async function onRequest(context) {
   const { request, env } = context;
   try {
     if (!env.DB) throw httpErr('D1 데이터베이스가 연결되지 않았습니다. Cloudflare Pages 설정 → Bindings에서 변수 이름 "DB"로 D1을 연결한 뒤 다시 배포해 주세요.', 500);
-    return await route(env.DB, request);
+    return await route(env.DB, request, env);
   } catch (e) {
     let msg = (e && e.message) ? e.message : '요청 처리에 실패했습니다';
     if (/no such table/i.test(msg)) msg = '데이터베이스 초기화가 필요합니다. D1 Console에서 schema.sql을 실행해 주세요.';
@@ -138,7 +138,7 @@ export async function onRequest(context) {
   }
 }
 
-async function route(db, request) {
+async function route(db, request, env) {
   const url = new URL(request.url);
   const path = url.pathname.replace(/^\/api/, '') || '/';
   const seg = path.split('/').filter(Boolean);
@@ -212,7 +212,7 @@ async function route(db, request) {
       reservations = reservations.map(r => ({
         id: r.id, branch_id: r.branch_id, res_date: r.res_date, slot: r.slot,
         start_t: r.start_t, end_t: r.end_t, source: r.source,
-        ckey: dhash((r.customer || '') + (r.phone || ''))
+        ckey: dhash((r.customer || '') + (r.phone || '')), issue: r.issue ? 1 : 0
       }));
     }
     const cleanings = (await db.prepare('SELECT * FROM cleanings WHERE clean_date>=? AND clean_date<=?')
@@ -224,7 +224,25 @@ async function route(db, request) {
       costs = (await db.prepare(`SELECT * FROM costs WHERE ym IN (${yms.map(() => '?').join(',')})`)
         .bind(...yms).all()).results;
     }
-    return J({ reservations, cleanings, costs });
+    /* ---- v2 확장 데이터 (업그레이드 SQL 미실행 상태에서도 기존 기능은 그대로 동작) ---- */
+    let profiles = [], assignments = [], notices = [], notice_reads = [], rates = [], last_sync = null, v2 = true;
+    try {
+      profiles = (await db.prepare('SELECT * FROM branch_profiles').all()).results;
+      assignments = (await db.prepare('SELECT * FROM assignments WHERE date>=? AND date<=?')
+        .bind(addDays(from, -1), addDays(to, 1)).all()).results;
+      notices = (await db.prepare('SELECT * FROM notices WHERE date>=? AND date<=? ORDER BY date, created_at')
+        .bind(addDays(from, -1), addDays(to, 1)).all()).results;
+      if (notices.length) {
+        const ids = notices.map(n => n.id);
+        notice_reads = (await db.prepare(`SELECT * FROM notice_reads WHERE notice_id IN (${ids.map(() => '?').join(',')})`)
+          .bind(...ids).all()).results;
+      }
+      if (isMgr) {
+        rates = (await db.prepare('SELECT * FROM user_rates').all()).results;
+        last_sync = await db.prepare('SELECT * FROM sync_log ORDER BY id DESC LIMIT 1').first();
+      }
+    } catch (e) { v2 = false; }
+    return J({ reservations, cleanings, costs, profiles, assignments, notices, notice_reads, rates, last_sync, v2, host_bound: !!(env && env.HOSTDB) });
   }
 
   /* ---------- 시설 이슈 ---------- */
@@ -469,6 +487,113 @@ async function route(db, request) {
     return J({ user: rowUser(await db.prepare('SELECT * FROM users WHERE id=?').bind(seg[1]).first()) });
   }
 
+  /* ---------- v2 · 지점 운영 프로필 ---------- */
+  if (seg[0] === 'profiles' && seg[1] && method === 'POST') {
+    mustMgr();
+    const b = await db.prepare('SELECT id FROM branches WHERE id=?').bind(seg[1]).first();
+    if (!b) throw httpErr('지점을 찾을 수 없습니다', 404);
+    const numOr = v => (v == null || v === '' ? null : (Math.round(+v) || null));
+    const pr = {
+      region: String(body.region ?? ''), scode: String(body.scode ?? ''),
+      default_worker: String(body.default_worker ?? ''),
+      std_minutes: numOr(body.std_minutes), buffer_min: numOr(body.buffer_min),
+      midday_deadline: body.midday_deadline ? String(body.midday_deadline) : null,
+      notes: String(body.notes ?? ''), slots_json: body.slots_json ? String(body.slots_json) : ''
+    };
+    await db.prepare(`INSERT INTO branch_profiles(branch_id,region,scode,default_worker,std_minutes,buffer_min,midday_deadline,notes,slots_json,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(branch_id) DO UPDATE SET region=excluded.region, scode=excluded.scode, default_worker=excluded.default_worker,
+        std_minutes=excluded.std_minutes, buffer_min=excluded.buffer_min, midday_deadline=excluded.midday_deadline,
+        notes=excluded.notes, slots_json=excluded.slots_json, updated_at=excluded.updated_at`)
+      .bind(seg[1], pr.region, pr.scode, pr.default_worker, pr.std_minutes, pr.buffer_min, pr.midday_deadline, pr.notes, pr.slots_json, nowIso()).run();
+    return J({ profile: await db.prepare('SELECT * FROM branch_profiles WHERE branch_id=?').bind(seg[1]).first() });
+  }
+
+  /* ---------- v2 · 날짜×권역/지점 일괄 배정 ---------- */
+  if (path === '/assignments' && method === 'POST') {
+    mustMgr();
+    const date = String(body.date || '').trim();
+    if (!date) throw httpErr('날짜가 필요합니다');
+    const region = String(body.region ?? ''), branch_id = String(body.branch_id ?? '');
+    const worker = String(body.worker ?? '').trim();
+    const ex = await db.prepare('SELECT id FROM assignments WHERE date=? AND region=? AND branch_id=?').bind(date, region, branch_id).first();
+    if (!worker) {
+      if (ex) await db.prepare('DELETE FROM assignments WHERE id=?').bind(ex.id).run();
+      return J({ ok: true, removed: !!ex });
+    }
+    if (ex) {
+      await db.prepare('UPDATE assignments SET worker=?, created_by=?, created_at=? WHERE id=?').bind(worker, me.name, nowIso(), ex.id).run();
+      return J({ assignment: await db.prepare('SELECT * FROM assignments WHERE id=?').bind(ex.id).first() });
+    }
+    const aid = uid();
+    await db.prepare('INSERT INTO assignments(id,date,region,branch_id,worker,created_by,created_at) VALUES(?,?,?,?,?,?,?)')
+      .bind(aid, date, region, branch_id, worker, me.name, nowIso()).run();
+    return J({ assignment: await db.prepare('SELECT * FROM assignments WHERE id=?').bind(aid).first() });
+  }
+  if (seg[0] === 'assignments' && seg[1] && method === 'DELETE') {
+    mustMgr();
+    await db.prepare('DELETE FROM assignments WHERE id=?').bind(seg[1]).run();
+    return J({ ok: true });
+  }
+
+  /* ---------- v2 · 일일 브리핑(필수 확인사항) ---------- */
+  if (path === '/notices' && method === 'POST') {
+    mustMgr();
+    const date = String(body.date || '').trim(), text = String(body.body || '').trim();
+    if (!date || !text) throw httpErr('날짜와 내용을 입력해 주세요');
+    const nid = uid();
+    await db.prepare('INSERT INTO notices(id,date,body,created_by,created_at) VALUES(?,?,?,?,?)').bind(nid, date, text, me.name, nowIso()).run();
+    return J({ notice: await db.prepare('SELECT * FROM notices WHERE id=?').bind(nid).first() });
+  }
+  if (seg[0] === 'notices' && seg[1] && seg[2] === 'read' && method === 'POST') {
+    const n = await db.prepare('SELECT id FROM notices WHERE id=?').bind(seg[1]).first();
+    if (!n) throw httpErr('브리핑을 찾을 수 없습니다', 404);
+    if (body && body.undo) {
+      await db.prepare('DELETE FROM notice_reads WHERE notice_id=? AND user_id=?').bind(seg[1], me.id).run();
+      return J({ ok: true, read: false });
+    }
+    await db.prepare('INSERT OR REPLACE INTO notice_reads(notice_id,user_id,user_name,read_at) VALUES(?,?,?,?)').bind(seg[1], me.id, me.name, nowIso()).run();
+    return J({ ok: true, read: true });
+  }
+  if (seg[0] === 'notices' && seg[1] && method === 'DELETE') {
+    mustMgr();
+    await db.prepare('DELETE FROM notices WHERE id=?').bind(seg[1]).run();
+    await db.prepare('DELETE FROM notice_reads WHERE notice_id=?').bind(seg[1]).run();
+    return J({ ok: true });
+  }
+
+  /* ---------- v2 · 계정별 청소 건당 단가 (대표 전용) ---------- */
+  if (path === '/rates' && method === 'POST') {
+    if (me.role !== 'owner') throw httpErr('단가 설정은 대표만 가능합니다', 403);
+    const target = String(body.user_id || '');
+    const rate = Math.max(0, Math.round(+body.rate || 0));
+    const u = await db.prepare('SELECT id FROM users WHERE id=?').bind(target).first();
+    if (!u) throw httpErr('계정을 찾을 수 없습니다', 404);
+    await db.prepare('INSERT INTO user_rates(user_id,rate) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET rate=excluded.rate').bind(target, rate).run();
+    return J({ ok: true, user_id: target, rate });
+  }
+
+  /* ---------- v2 · 예약 "확인 후 진행" 표시 ---------- */
+  if (path === '/resissue' && method === 'POST') {
+    mustMgr();
+    const rid = String(body.res_id || '');
+    const r = await db.prepare('SELECT id FROM reservations WHERE id=?').bind(rid).first();
+    if (!r) throw httpErr('예약을 찾을 수 없습니다', 404);
+    await db.prepare('UPDATE reservations SET issue=? WHERE id=?').bind(String(body.issue ?? ''), rid).run();
+    return J({ reservation: await db.prepare('SELECT * FROM reservations WHERE id=?').bind(rid).first() });
+  }
+
+  /* ---------- v2 · 호스트 예약 동기화 (읽기 전용) ---------- */
+  if (path === '/sync' && method === 'POST') {
+    mustMgr();
+    return J(await runSync(env, db, me));
+  }
+  if (path === '/hostmap' && method === 'POST') {
+    mustMgr();
+    await db.prepare("INSERT INTO app_settings(k,v) VALUES('host_map',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v").bind(sj(body.map || {})).run();
+    return J({ ok: true });
+  }
+
   /* ---------- 운영 설정 ---------- */
   if (path === '/settings' && method === 'POST') {
     mustMgr();
@@ -478,4 +603,180 @@ async function route(db, request) {
   }
 
   throw httpErr('알 수 없는 요청: ' + path, 404);
+}
+
+
+/* =====================================================================
+   v2 · 호스트(ssople-host) 예약 동기화 — 같은 Cloudflare 계정 안에서
+   HOSTDB 바인딩(읽기 전용 용도)으로 직접 읽습니다. 로그인 정보 불필요.
+   호스트 DB에는 어떤 쓰기도 하지 않습니다.
+   ===================================================================== */
+const SYNC_BACK_DAYS = 35, SYNC_FWD_DAYS = 90;
+const qid = id => '"' + String(id).replace(/"/g, '""') + '"';
+const normKey = s => String(s || '').toLowerCase().replace(/[\s_\-]/g, '');
+const normNm = s => String(s || '').replace(/\s+/g, '').toLowerCase();
+function normDate10(v) {
+  if (v == null) return null;
+  const s = String(v).trim().replace(/[./]/g, '-');
+  const m = s.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  return m ? `${m[1]}-${String(+m[2]).padStart(2, '0')}-${String(+m[3]).padStart(2, '0')}` : null;
+}
+function normTimeHM(v) {
+  if (v == null) return null;
+  const m = String(v).match(/(\d{1,2}):(\d{2})/);
+  return m ? `${String(+m[1]).padStart(2, '0')}:${m[2]}` : null;
+}
+function pickCol(cols, cands) {
+  const ks = cols.map(c => ({ raw: c, k: normKey(c) }));
+  for (const cand of cands) { const t = normKey(cand); const hit = ks.find(x => x.k === t); if (hit) return hit.raw; }
+  for (const cand of cands) { const t = normKey(cand); const hit = ks.find(x => x.k.includes(t) && t.length >= 3); if (hit) return hit.raw; }
+  return null;
+}
+function slotFromRaw(raw, startHM) {
+  const s = String(raw || '');
+  if (/밤|야간|night/i.test(s)) return 'night';
+  if (/올데이|종일|allday|all[\s_\-]?day|full/i.test(s)) return 'allday';
+  if (/낮|주간|day/i.test(s)) return 'day';
+  if (startHM) {
+    const h = +startHM.slice(0, 2);
+    if (h >= 18 || h < 6) return 'night';
+    if (h >= 10 && h <= 14) return 'day';
+    return 'allday';
+  }
+  return 'etc';
+}
+
+async function runSync(env, db, me) {
+  if (!env || !env.HOSTDB) throw httpErr(
+    '호스트 예약 DB(HOSTDB)가 아직 연결되지 않았습니다. Cloudflare Pages → 프로젝트 Settings → Bindings → Add → D1 database에서 '
+    + 'Variable name을 HOSTDB, 데이터베이스를 ssople-host로 지정해 저장하고, Deployments에서 Retry deployment 해주세요. '
+    + '이 연결은 예약을 읽는 데만 사용하며 호스트 DB에는 아무것도 쓰지 않습니다.', 500);
+  const H = env.HOSTDB;
+
+  /* 수동 매핑(있으면 우선) */
+  let map = {};
+  try { const r = await db.prepare("SELECT v FROM app_settings WHERE k='host_map'").first(); if (r) map = pj(r.v, {}) || {}; } catch (e) {}
+
+  /* 예약 테이블 탐지 */
+  const tbls = (await H.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()).results.map(r => r.name);
+  let tbl = map.table && tbls.includes(map.table) ? map.table : null;
+  if (!tbl) tbl = tbls.find(n => /^reservations?$/i.test(n)) || tbls.find(n => /reserv|booking|예약/i.test(n));
+  if (!tbl) throw httpErr('호스트 DB에서 예약 테이블을 찾지 못했습니다. (발견된 테이블: ' + tbls.join(', ') + ')');
+
+  const cols = (await H.prepare(`PRAGMA table_info(${qid(tbl)})`).all()).results.map(r => r.name);
+  const mc = map.cols || {};
+  const col = {
+    code:   mc.code   || pickCol(cols, ['branch_code', 'scode', 'space_code', 'store_code', 'shop_code', 'spot_code']),
+    bname:  mc.bname  || pickCol(cols, ['branch_name', 'space_name', 'store_name', 'shop_name', 'room_name', 'branch', 'space']),
+    date:   mc.date   || pickCol(cols, ['use_date', 'res_date', 'reserve_date', 'reservation_date', 'checkin_date', 'start_date', 'use_day', 'date', 'ymd']),
+    slot:   mc.slot   || pickCol(cols, ['slot', 'time_slot', 'slot_type', 'time_type', 'session', 'kind']),
+    start:  mc.start  || pickCol(cols, ['start_t', 'start_time', 'checkin_time', 'from_time', 'start']),
+    end:    mc.end    || pickCol(cols, ['end_t', 'end_time', 'checkout_time', 'to_time', 'end']),
+    cust:   mc.cust   || pickCol(cols, ['customer_name', 'customer', 'guest_name', 'booker_name', 'booker', 'user_name', 'name']),
+    phone:  mc.phone  || pickCol(cols, ['phone', 'tel', 'mobile', 'contact', 'hp']),
+    amount: mc.amount || pickCol(cols, ['total_amount', 'pay_amount', 'paid_amount', 'amount', 'price', 'total']),
+    status: mc.status || pickCol(cols, ['status', 'state', 'pay_status', 'res_status']),
+    resno:  mc.resno  || pickCol(cols, ['resno', 'reservation_no', 'res_no', 'booking_no', 'order_no', 'order_id', 'no', 'id']),
+    memo:   mc.memo   || pickCol(cols, ['memo', 'note', 'request', 'requests', 'comment'])
+  };
+  if (!col.date) throw httpErr(`호스트 예약 테이블(${tbl})에서 날짜 컬럼을 찾지 못했습니다. (컬럼: ${cols.join(', ')})`);
+  if (!col.resno) throw httpErr(`호스트 예약 테이블(${tbl})에서 예약번호 컬럼을 찾지 못했습니다. (컬럼: ${cols.join(', ')})`);
+  if (!col.code && !col.bname) throw httpErr(`호스트 예약 테이블(${tbl})에서 지점 컬럼을 찾지 못했습니다. (컬럼: ${cols.join(', ')})`);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const f = addDays(today, -SYNC_BACK_DAYS), t = addDays(today, SYNC_FWD_DAYS);
+  const hostRows = (await H.prepare(`SELECT * FROM ${qid(tbl)} WHERE substr(${qid(col.date)},1,10)>=? AND substr(${qid(col.date)},1,10)<=?`)
+    .bind(f, t).all()).results;
+
+  /* 지점 매칭 준비: 프로필 S코드 → 지점명·별칭 순서 */
+  const branches = (await db.prepare('SELECT id,name,alias FROM branches').all()).results;
+  let profiles = [];
+  try { profiles = (await db.prepare('SELECT branch_id,scode FROM branch_profiles').all()).results; }
+  catch (e) { throw httpErr('v2 테이블이 아직 없습니다. D1 Console에서 upgrade_v2.sql을 1회 실행한 뒤 다시 시도해 주세요.'); }
+  const byScode = {}; profiles.forEach(p => { if (p.scode) byScode[normNm(p.scode)] = p.branch_id; });
+  const byName = {};
+  branches.forEach(b => {
+    byName[normNm(b.name)] = b.id;
+    String(b.alias || '').split(',').map(a => a.trim()).filter(Boolean).forEach(a => { byName[normNm(a)] = b.id; });
+  });
+
+  const unmatched = new Set();
+  const act = []; let skipped = 0;
+  for (const hr of hostRows) {
+    const rawNo = hr[col.resno];
+    const resno = 'H' + String(rawNo == null ? '' : rawNo).trim();
+    if (resno === 'H') { skipped++; continue; }
+    const rd = normDate10(hr[col.date]);
+    if (!rd) { skipped++; continue; }
+    const stRaw = col.status ? String(hr[col.status] ?? '') : '';
+    if (/취소|cancel|refund|환불/i.test(stRaw)) continue;   /* 취소분은 '활성 아님'으로만 취급 → 아래 제거 단계에서 정리 */
+    let bid = null, blabel = '';
+    if (col.code) {
+      blabel = String(hr[col.code] ?? '').trim();
+      if (blabel) bid = byScode[normNm(blabel)] || byName[normNm(blabel)] || null;
+    }
+    if (!bid && col.bname) {
+      const nm = String(hr[col.bname] ?? '').trim();
+      if (nm) {
+        blabel = blabel || nm;
+        bid = byName[normNm(nm)] || null;
+        if (!bid) {
+          const key = normNm(nm);
+          const hit = Object.keys(byName).find(k => k && k.length >= 2 && (key.includes(k) || k.includes(key)));
+          if (hit) bid = byName[hit];
+        }
+      }
+    }
+    if (!bid) { if (blabel) unmatched.add(blabel); skipped++; continue; }
+    const start = normTimeHM(col.start ? hr[col.start] : null) || (String(hr[col.date] || '').length > 10 ? normTimeHM(hr[col.date]) : null);
+    const end = normTimeHM(col.end ? hr[col.end] : null);
+    act.push({
+      resno, branch_id: bid, res_date: rd,
+      slot: slotFromRaw(col.slot ? hr[col.slot] : null, start),
+      customer: col.cust ? String(hr[col.cust] ?? '') : '',
+      phone: col.phone ? String(hr[col.phone] ?? '') : '',
+      amount: col.amount ? (parseInt(String(hr[col.amount] ?? '0').replace(/[^\d-]/g, ''), 10) || 0) : 0,
+      status: '확정', start_t: start, end_t: end,
+      memo: col.memo ? String(hr[col.memo] ?? '') : ''
+    });
+  }
+
+  /* resno 기준 upsert + 창 안에서 사라진 동기화분 제거(취소 반영) */
+  const exRows = (await db.prepare("SELECT * FROM reservations WHERE source='sync'").all()).results;
+  const ex = new Map(exRows.map(r => [r.resno, r]));
+  const activeSet = new Set(act.map(r => r.resno));
+  const stmts = [];
+  let added = 0, updated = 0, removed = 0;
+  for (const r of act) {
+    const e = ex.get(r.resno);
+    if (!e) {
+      stmts.push(insertStmt(db, 'reservations', Object.assign({ id: uid(), issue: '', source: 'sync', created_at: nowIso() }, r)));
+      added++;
+    } else {
+      const diff = ['branch_id', 'res_date', 'slot', 'customer', 'phone', 'amount', 'start_t', 'end_t', 'memo']
+        .some(k => String(e[k] ?? '') !== String(r[k] ?? ''));
+      if (diff) {
+        const st = updateStmt(db, 'reservations', {
+          branch_id: r.branch_id, res_date: r.res_date, slot: r.slot, customer: r.customer, phone: r.phone,
+          amount: r.amount, start_t: r.start_t, end_t: r.end_t, memo: r.memo
+        }, e.id);
+        if (st) stmts.push(st);
+        updated++;
+      }
+    }
+  }
+  for (const e of exRows) {
+    if (e.res_date >= f && e.res_date <= t && !activeSet.has(e.resno)) {
+      stmts.push(db.prepare('DELETE FROM reservations WHERE id=?').bind(e.id));
+      removed++;
+    }
+  }
+  for (let i = 0; i < stmts.length; i += 60) await db.batch(stmts.slice(i, i + 60));
+
+  const msg = `테이블 ${tbl} · 창 ${f}~${t}` + (unmatched.size ? ' · 미매칭 지점: ' + [...unmatched].slice(0, 8).join(', ') : ' · 전 지점 매칭');
+  try {
+    await db.prepare('INSERT INTO sync_log(ran_at,by_name,ok,added,updated,removed,skipped,message) VALUES(?,?,?,?,?,?,?,?)')
+      .bind(nowIso(), me.name, 1, added, updated, removed, skipped, msg).run();
+  } catch (e) {}
+  return { ok: true, added, updated, removed, skipped, table: tbl, unmatched: [...unmatched], window: [f, t], ran_at: nowIso() };
 }
